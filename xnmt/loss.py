@@ -5,9 +5,10 @@ import dynet as dy
 import collections
 
 class LossBuilder(object):
-  def __init__(self):
+  def __init__(self, normalize_loss=True):
     self.loss_nodes  = []
     self.loss_values = collections.defaultdict(float)
+    self.normalize_loss = normalize_loss
 
   def add_loss(self, loss_name, loss_expr):
     if loss_expr.dim()[1] > 1:
@@ -17,7 +18,10 @@ class LossBuilder(object):
   def compute(self):
     ''' Compute all the losses and delete the computational graph reference.
     '''
-    total_loss = dy.esum([x[1] for x in self.loss_nodes])
+    if self.normalize_loss:
+      total_loss = dy.esum([x[1]*(1.0/x[1].dim()[1]) for x in self.loss_nodes])
+    else:
+      total_loss = dy.esum([x[1] for x in self.loss_nodes])
     for loss_name, loss_expr in self.loss_nodes:
       self.loss_values[loss_name] += loss_expr.value()
     self.loss_nodes = []
