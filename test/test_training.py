@@ -1,8 +1,11 @@
 import unittest
 
+import random
+import os
+
+import numpy as np
 import dynet_config
 import dynet as dy
-import numpy as np
 
 from xnmt.translator import DefaultTranslator
 from xnmt.embedder import SimpleWordEmbedder
@@ -112,7 +115,6 @@ class TestBatchTraining(unittest.TestCase):
     Here we don't truncate the target side and use masking.
     """
     batch_size = 5
-    batch_size = 5
     src_sents = self.training_corpus.train_src_data[:batch_size]
     src_min = min([len(x) for x in src_sents])
     src_sents_trunc = [s[:src_min] for s in src_sents]
@@ -197,6 +199,8 @@ class TestTrainDevLoss(unittest.TestCase):
     train_args['save_num_checkpoints'] = 0
     xnmt_trainer = xnmt.xnmt_train.XnmtTrainer(args=Args(**train_args), need_deserialization=False, param_collection=self.model_context.dynet_param_collection)
     xnmt_trainer.model_context = self.model_context
+    for _ in range(10):
+      xnmt_trainer.run_epoch(update_weights=True)
     xnmt_trainer.run_epoch(update_weights=False)
     self.assertAlmostEqual(xnmt_trainer.logger.epoch_loss.loss_values['loss'] / xnmt_trainer.logger.epoch_words,
                            xnmt_trainer.logger.dev_score.loss)
@@ -231,6 +235,63 @@ class TestOverfitting(unittest.TestCase):
     self.assertAlmostEqual(0.0, 
                            xnmt_trainer.logger.epoch_loss.loss_values['loss'] / xnmt_trainer.logger.epoch_words,
                            places=2)
+
+class TestBatchShuffling(unittest.TestCase):
+  """
+  outputs should not change if we shuffle the order inside a minibatch
+  """
+  
+  def test_shuffled_minibatch(self):
+    self.model_context = ModelContext()
+    self.model_context.dynet_param_collection = PersistentParamCollection("some_file", 1)
+    task_options = xnmt.xnmt_train.options
+    train_args = dict({opt.name: opt.default_value for opt in task_options if
+                                opt.default_value is not None or not opt.required})
+    train_args['training_corpus'] = BilingualTrainingCorpus(train_src = "examples/data/head.ja",
+                                                            train_trg = "examples/data/head.en",
+                                                            dev_src = "examples/data/head.ja",
+                                                            dev_trg = "examples/data/head.en")
+    train_args['corpus_parser'] = BilingualCorpusParser(src_reader = PlainTextReader(), 
+                                                        trg_reader = PlainTextReader())
+    train_args['model'] = DefaultTranslator(src_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
+                                            encoder=LSTMEncoder(self.model_context),
+                                            attender=StandardAttender(self.model_context),
+                                            trg_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
+                                            decoder=MlpSoftmaxDecoder(self.model_context, vocab_size=100),
+                                            )
+    train_args['model_file'] = None
+    train_args['batch_size'] = 10
+    train_args['save_num_checkpoints'] = 0
+    xnmt_trainer = xnmt.xnmt_train.XnmtTrainer(args=Args(**train_args), need_deserialization=False, param_collection=self.model_context.dynet_param_collection)
+    xnmt_trainer.model_context = self.model_context
+    
+    self.model_context.dynet_param_collection.save()
+    os.rename(self.model_context.dynet_param_collection.data_files[0], self.model_context.dynet_param_collection.data_files[0] + ".saved")
+    for _ in range(10):
+      xnmt_trainer.run_epoch(update_weights=True)
+    loss_unshuffled = xnmt_trainer.logger.epoch_loss.loss_values['loss']
+    
+    os.rename(self.model_context.dynet_param_collection.data_files[0] + ".saved", self.model_context.dynet_param_collection.data_files[0])
+    self.model_context.dynet_param_collection.revert_to_best_model()
+    order = range(10)
+    random.shuffle(order)
+    tmp = [xnmt_trainer.train_src[0][i] for i in order]
+    xnmt_trainer.train_src[0] = mark_as_batch(tmp)
+    tmp = xnmt_trainer.train_src_mask[0][order]
+    xnmt_trainer.train_src_mask[0] = tmp
+    tmp = [xnmt_trainer.train_trg[0][i] for i in order]
+    xnmt_trainer.train_trg[0] = mark_as_batch(tmp)
+    tmp = xnmt_trainer.train_trg_mask[0][order]
+    xnmt_trainer.train_trg_mask[0] = tmp
+
+    for _ in range(10):
+      xnmt_trainer.run_epoch(update_weights=True)
+    loss_shuffled = xnmt_trainer.logger.epoch_loss.loss_values['loss']
+    
+    print(loss_unshuffled)
+    self.assertAlmostEqual(loss_unshuffled, loss_shuffled)
+
+
 
 if __name__ == '__main__':
   unittest.main()
