@@ -89,6 +89,9 @@ def main(overwrite_args=None):
     print("=> Running {}".format(experiment_name))
 
     exp_args = exp_tasks["experiment"]
+    if os.path.isfile(exp_args.out_file):
+      print("ERROR: log file exp_args.out_file already exists; please delete by hand if you want to overwrite it; skipping experiment..")
+      continue
 
     preproc_args = exp_tasks["preproc"]
 
