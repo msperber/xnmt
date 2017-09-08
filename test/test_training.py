@@ -1,6 +1,4 @@
 import unittest
-import io
-import random
 
 import random
 import os
@@ -22,136 +20,6 @@ import xnmt.xnmt_train
 from xnmt.options import Args
 from xnmt.vocab import Vocab
 from xnmt.model_context import ModelContext, PersistentParamCollection
-import xnmt.batcher
-
-class TestBatchVariantsEqual(unittest.TestCase):
-  
-  def test_loss_equal(self):
-    tmp_dir = "examples/output/"
-    self.model_context = ModelContext()
-    self.model_context.default_layer_dim = 8
-    self.model_context.dynet_param_collection = PersistentParamCollection(tmp_dir + "some_file", 1)
-    task_options = xnmt.xnmt_train.options
-    train_args = dict({opt.name: opt.default_value for opt in task_options if
-                                opt.default_value is not None or not opt.required})
-    train_args['training_corpus'] = BilingualTrainingCorpus(train_src = "examples/data/head.ja",
-                                                            train_trg = "examples/data/head.en",
-                                                            dev_src = "examples/data/head.ja",
-                                                            dev_trg = "examples/data/head.en")
-    train_args['corpus_parser'] = BilingualCorpusParser(src_reader = PlainTextReader(vocab=Vocab(vocab_file="test/data/head.ja.vocab")), 
-                                                        trg_reader = PlainTextReader(vocab=Vocab(vocab_file="test/data/head.en.vocab")))
-    train_args['model'] = DefaultTranslator(src_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
-                                            encoder=LSTMEncoder(self.model_context),
-                                            attender=StandardAttender(self.model_context),
-                                            trg_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
-                                            decoder=MlpSoftmaxDecoder(self.model_context, vocab_size=100, bridge=CopyBridge(self.model_context, 1)),
-                                            )
-    train_args['model_file'] = None
-    train_args['batch_size'] = 5
-    train_args['batch_strategy'] = 'src'
-    train_args['save_num_checkpoints'] = 0
-    xnmt_trainer = xnmt.xnmt_train.XnmtTrainer(args=Args(**train_args), need_deserialization=False, param_collection=self.model_context.dynet_param_collection)
-    xnmt_trainer.model_context = self.model_context
-    
-    self.model_context.dynet_param_collection.save()
-    for _ in range(2):
-      xnmt_trainer.run_epoch(update_weights=False)
-    loss_unshuffled = xnmt_trainer.logger.epoch_loss.loss_values['loss']
-    
-    tmp_dir = "examples/output/"
-    self.model_context = ModelContext()
-    self.model_context.default_layer_dim = 8
-    self.model_context.dynet_param_collection = PersistentParamCollection(tmp_dir + "some_file", 1)
-    task_options = xnmt.xnmt_train.options
-    train_args = dict({opt.name: opt.default_value for opt in task_options if
-                                opt.default_value is not None or not opt.required})
-    train_src_lines = io.open("examples/data/head.ja").readlines()
-    train_trg_lines = io.open("examples/data/head.en").readlines()
-    order = range(10)
-    random.shuffle(order)
-    train_src_lines_shuffled = [train_src_lines[i] for i in order]
-    train_trg_lines_shuffled = [train_trg_lines[i] for i in order]
-    with io.open(tmp_dir + "head.ja.shuf", "w") as f:
-      f.write(u"\n".join([s.strip() for s in train_src_lines_shuffled]))
-    with io.open(tmp_dir + "head.en.shuf", "w") as f:
-      f.write(u"\n".join([s.strip() for s in train_trg_lines_shuffled]))
-    train_args['training_corpus'] = BilingualTrainingCorpus(train_src = tmp_dir + "/head.ja.shuf",
-                                                            train_trg = tmp_dir + "/head.en.shuf",
-                                                            dev_src = tmp_dir + "/head.ja.shuf",
-                                                            dev_trg = tmp_dir + "/head.en.shuf")
-    train_args['corpus_parser'] = BilingualCorpusParser(src_reader = PlainTextReader(vocab=Vocab(vocab_file="test/data/head.ja.vocab")), 
-                                                        trg_reader = PlainTextReader(vocab=Vocab(vocab_file="test/data/head.en.vocab")))
-    train_args['model'] = DefaultTranslator(src_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
-                                            encoder=LSTMEncoder(self.model_context),
-                                            attender=StandardAttender(self.model_context),
-                                            trg_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
-                                            decoder=MlpSoftmaxDecoder(self.model_context, vocab_size=100, bridge=CopyBridge(self.model_context, 1)),
-                                            )
-    train_args['model_file'] = None
-    train_args['batch_size'] = 3
-    train_args['batch_strategy'] = 'trg'
-    train_args['save_num_checkpoints'] = 0
-    xnmt_trainer = xnmt.xnmt_train.XnmtTrainer(args=Args(**train_args), need_deserialization=False, param_collection=self.model_context.dynet_param_collection)
-    xnmt_trainer.model_context = self.model_context
-    self.model_context.dynet_param_collection.revert_to_best_model()
-
-    for _ in range(2):
-      xnmt_trainer.run_epoch(update_weights=False)
-    loss_shuffled = xnmt_trainer.logger.epoch_loss.loss_values['loss']
-    self.assertAlmostEqual(loss_unshuffled, loss_shuffled)
-
-
-  def test_enc_equal(self):
-    # PART 1
-    tmp_dir = "examples/output/"
-    self.model_context = ModelContext()
-    self.model_context.default_layer_dim = 2
-    self.model_context.dynet_param_collection = PersistentParamCollection(tmp_dir + "some_file", 1)
-    training_corpus = BilingualTrainingCorpus(train_src = "examples/data/head.ja",
-                                              train_trg = "examples/data/head.en",
-                                                dev_src = "examples/data/head.ja",
-                                                dev_trg = "examples/data/head.en")
-    corpus_parser = BilingualCorpusParser(src_reader = PlainTextReader(vocab=Vocab(vocab_file="test/data/head.ja.vocab")), 
-                                                        trg_reader = PlainTextReader(vocab=Vocab(vocab_file="test/data/head.en.vocab")))
-    model = DefaultTranslator(src_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
-                                            encoder=LSTMEncoder(self.model_context, layers=4),
-                                            attender=StandardAttender(self.model_context),
-                                            trg_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
-                                            decoder=MlpSoftmaxDecoder(self.model_context, vocab_size=100),
-                                            )
-
-    corpus_parser.read_training_corpus(training_corpus)
-
-    prev_val = None
-    for batch_spec in [("trg", 3), ("trg", 5), ("src",4), ("src", 10)]:
-
-      batcher = xnmt.batcher.from_spec(batch_spec[0], batch_spec[1])
-      
-      train_src, train_src_mask, train_trg, train_trg_mask = \
-        batcher.pack(training_corpus.train_src_data, training_corpus.train_trg_data)
-      
-      self.model_context.dynet_param_collection.save()
-      total = 0.0
-      for batch_num in list(range(len(train_src))):
-        src, src_mask, trg, trg_mask = train_src[batch_num], train_src_mask[batch_num], train_trg[batch_num], train_trg_mask[batch_num]
-        dy.renew_cg()
-        model.start_sent()
-        embeddings = model.src_embedder.embed_sent(src, mask=src_mask)
-        encodings = model.encoder.transduce(embeddings)
-        masked_encodings = []
-        for pos_i, enc_i in enumerate(encodings):
-          if src_mask is None:
-            masked_encodings.append(enc_i)
-          else:
-            mask_i = dy.inputTensor(1.0 - np.expand_dims(src_mask.transpose(), axis=1)[pos_i:pos_i+1], batched=True)
-            masked_encodings.append(dy.cmult(enc_i, mask_i))
-        total += dy.sum_batches(dy.sum_elems(dy.esum(masked_encodings))).value()
-      if prev_val is not None:
-        self.assertAlmostEqual(prev_val, total, 4)
-      prev_val = total
-
-
-
 
 class TestTruncatedBatchTraining(unittest.TestCase):
   
@@ -247,6 +115,7 @@ class TestBatchTraining(unittest.TestCase):
     Tests whether single loss equals batch loss.
     Here we don't truncate the target side and use masking.
     """
+    batch_size = 5
     batch_size = 5
     src_sents = self.training_corpus.train_src_data[:batch_size]
     src_min = min([len(x) for x in src_sents])
