@@ -68,6 +68,7 @@ class ArrayInput(Input):
   def get_padded_sent(self, token, pad_len):
     if pad_len == 0:
       return self
+    if token is not None: raise NotImplementedError("currently only support None token which causes replication of last frame")
     new_nparr = np.append(self.nparr, np.zeros((self.nparr.shape[0], pad_len)), axis=1)
     return ArrayInput(new_nparr)
 

@@ -114,7 +114,7 @@ class XnmtTrainer(object):
       print('Start training in minibatch mode...')
       self.batcher = xnmt.batcher.from_spec(args.batch_strategy, args.batch_size)
       if args.src_format == "contvec":
-        self.batcher.pad_token = np.zeros(self.model.src_embedder.emb_dim)
+        self.batcher.src_pad_token = None # np.zeros(self.model.src_embedder.emb_dim)
       self.pack_batches()
       self.logger = BatchLossTracker(args.dev_every, self.total_train_sent)
 
