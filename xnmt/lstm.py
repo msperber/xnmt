@@ -2,6 +2,8 @@ import dynet as dy
 import numpy as np
 from xnmt.encoder_state import FinalEncoderState, PseudoState
 from xnmt.expression_sequence import ExpressionSequence, ReversedExpressionSequence
+from xnmt.batch_norm import BatchNorm
+import math
 
 class LSTMState(object):
   def __init__(self, builder, h_t=None, c_t=None, state_idx=-1, prev_state=None):
@@ -121,7 +123,7 @@ class CustomCompactLSTMBuilder(object):
       expr_seq = [expr_seq]
     try:
       batch_size = expr_seq[0][0].dim()[1]
-    except AttributeError: 
+    except TypeError: 
       batch_size = expr_seq[0][0].dim()[1]
     seq_len = len(expr_seq[0])
     
@@ -257,3 +259,150 @@ class CustomLSTMBuilder(object):
       h.append(dy.cmult(i_ot, dy.tanh(c[-1])))
     return h
   
+class NetworkInNetworkBiRNNBuilder(object):
+  """
+  Builder for NiN-interleaved RNNs that delegates to regular RNNs and wires them together.
+  See http://iamaaditya.github.io/2016/03/one-by-one-convolution/
+  and https://arxiv.org/pdf/1610.03022.pdf
+  """
+  def __init__(self, num_layers, input_dim, hidden_dim, model, batch_norm=False, stride=1,
+               num_projections=1, projection_enabled=True, nonlinearity="relu"):
+    """
+    :param num_layers: depth of the network
+    :param input_dim: size of the inputs
+    :param hidden_dim: size of the outputs (and intermediate layer representations)
+    :param model
+    :param rnn_builder_factory: RNNBuilder subclass, e.g. VanillaLSTMBuilder
+    :param batch_norm: uses batch norm between projection and non-linearity
+    :param stride: in (first) projection layer, concatenate n frames and use the projection for subsampling
+    :param num_projections: number of projections (only the first projection does any subsampling)
+    """
+    assert num_layers > 0
+    assert hidden_dim % 2 == 0
+    assert num_projections > 0
+    self.builder_layers = []
+    self.hidden_dim = hidden_dim
+    self.stride=stride
+    self.num_projections = num_projections
+    self.projection_enabled = projection_enabled
+    self.nonlinearity = nonlinearity
+    f = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, model)
+    b = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, model)
+    self.use_bn = batch_norm
+    bn = BatchNorm(model, hidden_dim, 2)
+    self.builder_layers.append((f, b, bn))
+    for _ in xrange(num_layers - 1):
+      f = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, model)
+      b = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, model)
+      bn = BatchNorm(model, hidden_dim, 2) if batch_norm else None
+      self.builder_layers.append((f, b, bn))
+    self.lintransf_layers = []
+    for _ in xrange(num_layers):
+      proj_params = []
+      for proj_i in range(num_projections):
+        if proj_i==0:
+          proj_param = model.add_parameters(dim=(hidden_dim, hidden_dim*stride))
+        else:
+          proj_param = model.add_parameters(dim=(hidden_dim, hidden_dim))
+        proj_params.append(proj_param)
+      self.lintransf_layers.append(proj_params)
+    self.train = True
+
+  def whoami(self): return "NetworkInNetworkBiRNNBuilder"
+
+  def set_dropout(self, p):
+    for (fb, bb, bn) in self.builder_layers:
+      fb.set_dropout(p)
+      bb.set_dropout(p)
+  def disable_dropout(self):
+    for (fb, bb, bn) in self.builder_layers:
+      fb.disable_dropout()
+      bb.disable_dropout()
+  def set_weight_noise(self, p):
+    for (fb, bb, bn) in self.builder_layers:
+      fb.set_weight_noise(p)
+      bb.set_weight_noise(p)
+  def disable_weight_noise(self):
+    for (fb, bb, bn) in self.builder_layers:
+      fb.disable_weight_noise()
+      bb.disable_weight_noise()
+
+  def transduce(self, es):
+    """
+    returns the list of output Expressions obtained by adding the given inputs
+    to the current state, one by one, to both the forward and backward RNNs, 
+    and concatenating.
+        
+    :param es: a list of Expression
+
+    """
+    
+    # TODO:
+    # - apply proper masking
+    
+    for layer_i, (fb, bb, bn) in enumerate(self.builder_layers):
+      fs = fb.initial_state().transduce(es)
+      bs = bb.initial_state().transduce(ReversedExpressionSequence(es))
+      interleaved = []
+
+      if es.mask is None: mask_out = None
+      else:
+        len_out = int(math.ceil(len(es)/float(self.stride)))
+        batch_size = es[0][0].dim()[1]
+        mask_out = np.array([[es.mask[b,int(i*self.stride)] for i in range(len_out)] for b in range(batch_size)])
+
+      for pos in range(len(fs)):
+        interleaved.append(fs[pos])
+        interleaved.append(bs[-pos-1])
+      projected = self.apply_nin_projections(self.lintransf_layers[layer_i], interleaved, bn, stride=self.stride*2)
+      if es.mask is not None:
+        projected_masked = []
+        for i in range(len(projected)):
+          mask_expr = dy.inputTensor(es.mask.transpose()[i:i+1], batched=True)
+          inv_mask_expr = dy.inputTensor(1.0 - es.mask.transpose()[i:i+1], batched=True)
+          if i==0:
+            projected_masked.append(projected[i])
+          else:
+            projected_masked.append(dy.cmult(projected[i], inv_mask_expr) + dy.cmult(projected_masked[i-1], mask_expr))
+        projected = projected_masked
+      es = ExpressionSequence(expr_list = projected,
+                              mask = mask_out)
+    return es
+  def apply_nin_projections(self, lintransf_params, es, bn, stride):
+    for proj_i in range(len(lintransf_params)):
+      es = self.apply_one_nin(es, bn, stride if proj_i==0 else 1, lintransf_params[proj_i])
+    return es
+  def apply_one_nin(self, es, bn, stride, lintransf):
+    batch_size = es[0].dim()[1]
+    if len(es)%stride!=0:
+      zero_pad = dy.inputTensor(np.zeros(es[0].dim()[0]+(es[0].dim()[1],)), batched=True)
+      es.extend([zero_pad] * (stride-len(es)%stride))
+    projections = []
+    lintransf_param = dy.parameter(lintransf)
+    for pos in range(0, len(es), stride):
+      concat = dy.concatenate(es[pos:pos+stride])
+      if self.projection_enabled:
+        proj = lintransf_param * concat
+      else: proj = concat
+      projections.append(proj)
+    if self.use_bn:
+      bn_layer = bn.bn_expr(dy.concatenate([dy.reshape(x, (1,self.hidden_dim), batch_size=batch_size) for x in projections], 
+                                0), 
+                 train=self.train)
+      nonlin = self.apply_nonlinearity(bn_layer)
+      es = [dy.pick(nonlin, i) for i in range(nonlin.dim()[0][0])]
+    else:
+      es = []
+      for proj in projections:
+        nonlin = self.apply_nonlinearity(proj)
+        es.append(nonlin)
+    return es
+  def apply_nonlinearity(self, expr):
+    if self.nonlinearity is None:
+      return expr
+    elif self.nonlinearity.lower()=="relu":
+      return dy.rectify(expr)
+    else:
+      raise RuntimeError("unknown nonlinearity %s" % self.nonlinearity)
+  def initial_state(self):
+    return PseudoState(self)
