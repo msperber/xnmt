@@ -145,7 +145,7 @@ class CustomCompactLSTMBuilder(object):
         gates_t = dy.vanilla_lstm_gates_concat(x_t, h[-1], self.Wx, self.Wh, self.b, self.weightnoise_std)
       c_t = dy.vanilla_lstm_c(c[-1], gates_t)
       h_t = dy.vanilla_lstm_h(c_t, gates_t)
-      if expr_seq[0].mask is None:
+      if expr_seq[0].mask is None or np.isclose(np.sum(expr_seq[0].mask.transpose()[pos_i:pos_i+1]), 0.0):
         c.append(c_t)
         h.append(h_t)
       else:
@@ -336,10 +336,6 @@ class NetworkInNetworkBiRNNBuilder(object):
     :param es: a list of Expression
 
     """
-    
-    # TODO:
-    # - apply proper masking
-    
     for layer_i, (fb, bb, bn) in enumerate(self.builder_layers):
       fs = fb.initial_state().transduce(es)
       bs = bb.initial_state().transduce(ReversedExpressionSequence(es))
@@ -358,11 +354,11 @@ class NetworkInNetworkBiRNNBuilder(object):
       if es.mask is not None:
         projected_masked = []
         for i in range(len(projected)):
-          mask_expr = dy.inputTensor(es.mask.transpose()[i:i+1], batched=True)
-          inv_mask_expr = dy.inputTensor(1.0 - es.mask.transpose()[i:i+1], batched=True)
-          if i==0:
+          if i==0 or np.isclose(np.sum(es.mask.transpose()[i:i+1]), 0.0): # only mask if we can and have to
             projected_masked.append(projected[i])
           else:
+            mask_expr = dy.inputTensor(es.mask.transpose()[i:i+1], batched=True)
+            inv_mask_expr = dy.inputTensor(1.0 - es.mask.transpose()[i:i+1], batched=True)
             projected_masked.append(dy.cmult(projected[i], inv_mask_expr) + dy.cmult(projected_masked[i-1], mask_expr))
         projected = projected_masked
       es = ExpressionSequence(expr_list = projected,
