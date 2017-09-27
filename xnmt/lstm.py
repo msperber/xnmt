@@ -138,6 +138,8 @@ class CustomCompactLSTMBuilder(object):
         x_t = [x_t]
       elif type(x_t) != list:
         x_t = list(x_t)
+      if sum([x_t_i.dim()[0][0] for x_t_i in x_t]) != self.input_dim:
+        raise ValueError("VanillaLSTMGates: x_t has inconsistent dimension %s, expecting %s" % (sum([x_t_i.dim()[0][0] for x_t_i in x_t]), self.input_dim))
       if self.dropout_rate > 0.0:
         # apply dropout according to https://arxiv.org/abs/1512.05287 (tied weights)
         gates_t = dy.vanilla_lstm_gates_dropout_concat(x_t, h[-1], self.Wx, self.Wh, self.b, self.dropout_mask_x, self.dropout_mask_h, self.weightnoise_std)

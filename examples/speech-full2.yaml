@@ -20,6 +20,7 @@ defaults:
     corpus_parser: !BilingualCorpusParser
       src_reader: !ContVecReader
         transpose: True
+        feat_skip: 2
       trg_reader: !PlainTextReader {}
     model: !DefaultTranslator
       src_embedder: !NoopEmbedder
@@ -29,7 +30,7 @@ defaults:
         - !StridedConvEncoder
           layers: 3
           output_tensor: False
-          input_dim: 240
+          input_dim: 120
           chn_dim: 3
           num_filters: 32
           batch_norm: True
@@ -42,15 +43,15 @@ defaults:
           layers: 2
           stride: 1
           num_projections: 1
-          input_dim: 544
+          input_dim: 224
           batch_norm: False
-          hidden_dim: 64
+          hidden_dim: 512
           projection_enabled: True
           nonlinearity: relu
         - !LSTMEncoder
           bidirectional: True
           layers: 1
-          input_dim: 64
+          input_dim: 512
           hidden_dim: 64
       attender: !StandardAttender
         state_dim: 64
