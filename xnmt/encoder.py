@@ -16,6 +16,7 @@ import xnmt.pyramidal
 import xnmt.residual
 import xnmt.segmenting_encoder
 import xnmt.lstm
+import xnmt.conv_encoder
 
 
 class Encoder(HierarchicalModel):
@@ -129,6 +130,25 @@ class NetworkInNetworkBiLSTMEncoder(BuilderEncoder, Serializable):
     self.builder.set_dropout(self.dropout if val else 0.0)
     if self.weight_noise > 0.0:
       self.builder.set_weight_noise(self.weight_noise if val else 0.0)
+
+class StridedConvEncoder(BuilderEncoder, Serializable):
+  yaml_tag = u'!StridedConvEncoder'
+  def __init__(self, context, input_dim, layers=1, chn_dim=3, num_filters=32, 
+               output_tensor=False, batch_norm=True, stride=(2,2), nonlinearity="relu", init_gauss_var=0.1):
+    model = context.dynet_param_collection.param_col
+    self.builder = xnmt.conv_encoder.StridedConvEncBuilder(layers, input_dim, model, chn_dim, 
+                                            num_filters, output_tensor, batch_norm,
+                                            stride, nonlinearity, init_gauss_var)
+  @recursive
+  def set_train(self, val):
+    self.builder.train = val
+
+class PoolingConvEncoder(BuilderEncoder, Serializable):
+  yaml_tag = u'!PoolingConvEncoder'
+  def __init__(self, context, input_dim, pooling=[None, (1,1)], chn_dim=3, num_filters=32, 
+               output_tensor=False, nonlinearity="relu", init_gauss_var=0.1):
+    model = context.dynet_param_collection.param_col
+    self.builder = xnmt.conv_encoder.PoolingConvEncBuilder(input_dim, model, pooling, chn_dim, num_filters, output_tensor, nonlinearity, init_gauss_var)
 
 
 class ModularEncoder(Encoder, Serializable):
