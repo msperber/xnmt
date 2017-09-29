@@ -1,7 +1,7 @@
 import math
 import dynet as dy
 from xnmt.batch_norm import BatchNorm
-
+from xnmt.expression_sequence import ExpressionSequence
 class StridedConvEncBuilder(object):
   """
   Implements several strided CNN layers.
@@ -128,12 +128,13 @@ class StridedConvEncBuilder(object):
         cnn_layer = dy.bmax(cnn_layer, cnn_layer_alt)
       elif self.nonlinearity is not None:
         raise RuntimeError("unknown nonlinearity: %s" % self.nonlinearity)
+    mask_out = es.mask.lin_subsampled(trg_len=cnn_layer.dim()[0][0])
     if self.output_tensor:
-      return cnn_layer
+      return ExpressionSequence(expr_tensor=cnn_layer, mask=mask_out)
     else:
       cnn_out = dy.reshape(cnn_layer, (cnn_layer.dim()[0][0], cnn_layer.dim()[0][1]*cnn_layer.dim()[0][2]), batch_size=batch_size)
       es_list = [cnn_out[i] for i in range(cnn_out.dim()[0][0])]
-      return es_list
+      return ExpressionSequence(expr_list=es_list, mask=mask_out)
 
 
 
@@ -255,9 +256,10 @@ class PoolingConvEncBuilder(object):
       if self.pooling[layer_i]:
         cnn_layer = dy.maxpooling2d(cnn_layer, (3,3), stride=self.pooling[layer_i], is_valid=True)
       
+    mask_out = es.mask.lin_subsampled(trg_len=cnn_layer.dim()[0][0])
     if self.output_tensor:
-      return cnn_layer
+      return ExpressionSequence(tensor_expr=cnn_layer, mask=mask_out)
     else:
       cnn_out = dy.reshape(cnn_layer, (cnn_layer.dim()[0][0], cnn_layer.dim()[0][1]*cnn_layer.dim()[0][2]), batch_size=batch_size)
       es_list = [cnn_out[i] for i in range(cnn_out.dim()[0][0])]
-      return es_list
+      return ExpressionSequence(list_expr=es_list, mask=mask_out)

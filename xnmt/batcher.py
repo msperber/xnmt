@@ -32,8 +32,12 @@ class Mask(object):
   def reversed(self):
     return Mask(self.np_arr[:,::-1])
   
-  def lin_subsampled(self, reduce_factor):
-    return Mask(np.array([[self.np_arr[b,int(i*reduce_factor)] for i in range(int(math.ceil(len(self)/reduce_factor)))] for b in range(self.batch_size())]))
+  def lin_subsampled(self, reduce_factor=None, trg_len=None):
+    if reduce_factor:
+      return Mask(np.array([[self.np_arr[b,int(i*reduce_factor)] for i in range(int(math.ceil(len(self)/float(reduce_factor))))] for b in range(self.batch_size())]))
+    else:
+      return Mask(np.array([[self.np_arr[b,int(i*len(self)/float(trg_len))] for i in range(trg_len)] for b in range(self.batch_size())]))
+      
   
   def add_to_tensor_expr(self, tensor_expr, multiplicator=None):
     # TODO: might cache these expressions to save memory

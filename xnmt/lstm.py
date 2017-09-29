@@ -346,7 +346,7 @@ class NetworkInNetworkBiRNNBuilder(object):
       if es.mask is not None:
         projected_masked = []
         for i in range(len(projected)):
-          if i==0 or np.isclose(np.sum(es.mask.transpose()[i:i+1]), 0.0): # only mask if we can and have to
+          if i==0 or np.count_nonzero(es.mask.np_arr[:,i:i+1]) == 0: # only mask if we can and have to
             projected_masked.append(projected[i])
           else:
             projected_masked.append(es.mask.cmult_by_timestep_expr(projected[i], i, True) + es.mask.cmult_by_timestep_expr(projected_masked[i-1], i, False))

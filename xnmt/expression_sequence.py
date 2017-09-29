@@ -32,6 +32,9 @@ class ExpressionSequence(object):
         raise ValueError("expr_list must contain dynet expressions, found:", type(expr_list[0]))
     if expr_tensor:
       if not isinstance(expr_tensor,dy.Expression): raise ValueError("expr_tensor must be dynet expression, was:", type(expr_tensor))
+    if mask:
+      if len(mask) != len(self):
+        raise ValueError("mask length", len(mask), "inconsistent with expression sequence length ", len(self))
 
   def __len__(self):
     """Return length.
