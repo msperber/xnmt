@@ -24,7 +24,7 @@ defaults:
       trg_reader: !PlainTextReader {}
     model: !DefaultTranslator
       src_embedder: !NoopEmbedder
-        emb_dim: 240
+        emb_dim: 120
       encoder: !ModularEncoder
         modules:
         - !StridedConvEncoder
