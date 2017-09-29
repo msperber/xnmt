@@ -1,6 +1,7 @@
 from __future__ import division, generators
 
 import six
+import math
 import numpy as np
 import dynet as dy
 from xnmt.vocab import Vocab
@@ -22,8 +23,17 @@ class Mask(object):
   def __init__(self, np_arr):
     self.np_arr = np_arr
   
+  def __len__(self):
+    return self.np_arr.shape[1]
+  
+  def batch_size(self):
+    return self.np_arr.shape[0]
+
   def reversed(self):
     return Mask(self.np_arr[:,::-1])
+  
+  def lin_subsampled(self, reduce_factor):
+    return Mask(np.array([[self.np_arr[b,int(i*reduce_factor)] for i in range(int(math.ceil(len(self)/reduce_factor)))] for b in range(self.batch_size())]))
   
   def add_to_tensor_expr(self, tensor_expr, multiplicator=None):
     # TODO: might cache these expressions to save memory

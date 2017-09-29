@@ -141,7 +141,7 @@ class CustomCompactLSTMBuilder(object):
         gates_t = dy.vanilla_lstm_gates_concat(x_t, h[-1], self.Wx, self.Wh, self.b, self.weightnoise_std)
       c_t = dy.vanilla_lstm_c(c[-1], gates_t)
       h_t = dy.vanilla_lstm_h(c_t, gates_t)
-      if expr_seq[0].mask is None or np.isclose(np.sum(expr_seq[0].mask.transpose()[pos_i:pos_i+1]), 0.0):
+      if expr_seq[0].mask is None or np.isclose(np.sum(expr_seq[0].mask.np_arr[:,pos_i:pos_i+1]), 0.0):
         c.append(c_t)
         h.append(h_t)
       else:
@@ -337,9 +337,7 @@ class NetworkInNetworkBiRNNBuilder(object):
 
       if es.mask is None: mask_out = None
       else:
-        len_out = int(math.ceil(len(es)/float(self.stride)))
-        batch_size = es[0][0].dim()[1]
-        mask_out = np.array([[es.mask[b,int(i*self.stride)] for i in range(len_out)] for b in range(batch_size)])
+        mask_out = es.mask.lin_subsampled(self.stride)
 
       for pos in range(len(fs)):
         interleaved.append(fs[pos])
@@ -351,9 +349,7 @@ class NetworkInNetworkBiRNNBuilder(object):
           if i==0 or np.isclose(np.sum(es.mask.transpose()[i:i+1]), 0.0): # only mask if we can and have to
             projected_masked.append(projected[i])
           else:
-            mask_expr = dy.inputTensor(es.mask.transpose()[i:i+1], batched=True)
-            inv_mask_expr = dy.inputTensor(1.0 - es.mask.transpose()[i:i+1], batched=True)
-            projected_masked.append(dy.cmult(projected[i], inv_mask_expr) + dy.cmult(projected_masked[i-1], mask_expr))
+            projected_masked.append(es.mask.cmult_by_timestep_expr(projected[i], i, True) + es.mask.cmult_by_timestep_expr(projected_masked[i-1], i, False))
         projected = projected_masked
       es = ExpressionSequence(expr_list = projected,
                               mask = mask_out)

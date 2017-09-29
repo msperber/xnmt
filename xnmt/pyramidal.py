@@ -83,8 +83,7 @@ class PyramidalRNNBuilder(object):
       
       if es_list[0].mask is None: mask_out = None
       else:
-        len_out = int(math.ceil(len(es_list[0])/float(reduce_factor)))
-        mask_out = np.array([[es_list[0].mask[b,int(i*reduce_factor)] for i in range(len_out)] for b in range(batch_size)])
+        mask_out = es_list[0].mask.lin_subsampled(reduce_factor)
       
       while self.downsampling_method=="concat" and len(es_list[0]) % reduce_factor != 0:
         for es_i in range(len(es_list)):

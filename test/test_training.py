@@ -275,20 +275,18 @@ class TestBatchShuffling(unittest.TestCase):
     order = range(10)
     random.shuffle(order)
     tmp = [xnmt_trainer.train_src[0][i] for i in order]
-    xnmt_trainer.train_src[0] = mark_as_batch(tmp)
-    tmp = xnmt_trainer.train_src_mask[0][order]
-    xnmt_trainer.train_src_mask[0] = tmp
+    tmp_mask = xnmt_trainer.train_src[0].mask.np_arr[order] if xnmt_trainer.train_src[0].mask else None
+    xnmt_trainer.train_src[0] = mark_as_batch(tmp, Mask(tmp_mask))
     tmp = [xnmt_trainer.train_trg[0][i] for i in order]
-    xnmt_trainer.train_trg[0] = mark_as_batch(tmp)
-    tmp = xnmt_trainer.train_trg_mask[0][order]
-    xnmt_trainer.train_trg_mask[0] = tmp
+    tmp_mask = xnmt_trainer.train_trg[0].mask.np_arr[order] if xnmt_trainer.train_trg[0].mask else None
+    xnmt_trainer.train_trg[0] = mark_as_batch(tmp, Mask(tmp_mask))
 
     for _ in range(10):
       xnmt_trainer.run_epoch(update_weights=True)
     loss_shuffled = xnmt_trainer.logger.epoch_loss.loss_values['loss']
     
     print(loss_unshuffled)
-    self.assertAlmostEqual(loss_unshuffled, loss_shuffled)
+    self.assertAlmostEqual(loss_unshuffled, loss_shuffled, 4)
 
 class TestFileShuffling(unittest.TestCase):
   """

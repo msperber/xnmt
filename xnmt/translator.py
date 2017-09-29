@@ -216,6 +216,8 @@ class TranslatorMLELoss(Serializable):
     if xnmt.batcher.is_batched(src):
       for j, single_trg in enumerate(trg):
         assert len(single_trg) == seq_len # assert consistent length
+        if not 1==len([i for i in range(seq_len) if (trg_mask is None or trg_mask.np_arr[j,i]==0) and single_trg[i]==Vocab.ES]):
+          assert 1==len([i for i in range(seq_len) if (trg_mask is None or trg_mask.np_arr[j,i]==0) and single_trg[i]==Vocab.ES])
         assert 1==len([i for i in range(seq_len) if (trg_mask is None or trg_mask.np_arr[j,i]==0) and single_trg[i]==Vocab.ES]) # assert exactly one unmasked ES token
     for i in range(seq_len):
       ref_word = trg[i] if not xnmt.batcher.is_batched(src) \

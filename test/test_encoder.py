@@ -88,17 +88,17 @@ class TestEncoder(unittest.TestCase):
             )
 
     batcher = xnmt.batcher.from_spec("trg", 3)
-    train_src, train_src_mask, train_trg, train_trg_mask = \
+    train_src, train_trg = \
       batcher.pack(self.training_corpus.train_src_data, self.training_corpus.train_trg_data)
-
+    
     for sent_i in range(3):
       dy.renew_cg()
-      embeddings = model.src_embedder.embed_sent(train_src[sent_i], mask=train_src_mask[sent_i])
+      embeddings = model.src_embedder.embed_sent(train_src[sent_i])
       encodings = model.encoder.transduce(embeddings)
-      if train_src_mask[sent_i] is None:
+      if train_src[sent_i].mask is None:
         assert encodings.mask is None
       else:
-        np.testing.assert_array_almost_equal(train_src_mask[sent_i], encodings.mask)
+        np.testing.assert_array_almost_equal(train_src[sent_i].mask.np_arr, encodings.mask.np_arr)
 
 if __name__ == '__main__':
   unittest.main()
