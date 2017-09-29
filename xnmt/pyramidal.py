@@ -116,6 +116,7 @@ class PyramidalRNNBuilder(object):
         # concat final outputs
         ret_es = ExpressionSequence(expr_list=[dy.concatenate([f, b]) for f, b in zip(fs, ReversedExpressionSequence(bs))], mask=mask_out)
     
+
     self._final_states = [FinalEncoderState(dy.concatenate([fb.get_final_states()[0].main_expr(),
                                                             bb.get_final_states()[0].main_expr()]),
                                             dy.concatenate([fb.get_final_states()[0].cell_expr(),

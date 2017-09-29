@@ -22,7 +22,7 @@ from xnmt.vocab import Vocab
 from xnmt.model_context import ModelContext, PersistentParamCollection
 
 class TestTruncatedBatchTraining(unittest.TestCase):
-  
+
   def setUp(self):
     self.model_context = ModelContext()
     self.model_context.dynet_param_collection = PersistentParamCollection("some_file", 1)
@@ -30,14 +30,14 @@ class TestTruncatedBatchTraining(unittest.TestCase):
                                               train_trg = "examples/data/head.en",
                                               dev_src = "examples/data/head.ja",
                                               dev_trg = "examples/data/head.en")
-    self.corpus_parser = BilingualCorpusParser(src_reader = PlainTextReader(), 
+    self.corpus_parser = BilingualCorpusParser(src_reader = PlainTextReader(),
                                           trg_reader = PlainTextReader())
     self.corpus_parser.read_training_corpus(self.training_corpus)
 
   def assert_single_loss_equals_batch_loss(self, model, batch_size=5):
     """
     Tests whether single loss equals batch loss.
-    Truncating src / trg sents to same length so no masking is necessary 
+    Truncating src / trg sents to same length so no masking is necessary
     """
     batch_size = 5
     src_sents = self.training_corpus.train_src_data[:batch_size]
@@ -48,22 +48,22 @@ class TestTruncatedBatchTraining(unittest.TestCase):
     trg_min = min([len(x) for x in trg_sents])
     trg_sents_trunc = [s[:trg_min] for s in trg_sents]
     for single_sent in trg_sents_trunc: single_sent[trg_min-1] = Vocab.ES
-    
+
     single_loss = 0.0
     for sent_id in range(batch_size):
       dy.renew_cg()
-      train_loss = model.calc_loss(src=src_sents_trunc[sent_id], 
+      train_loss = model.calc_loss(src=src_sents_trunc[sent_id],
                                         trg=trg_sents_trunc[sent_id],
                                         src_mask=None, trg_mask=None).value()
       single_loss += train_loss
-    
+
     dy.renew_cg()
-    
-    batched_loss = model.calc_loss(src=mark_as_batch(src_sents_trunc), 
+
+    batched_loss = model.calc_loss(src=mark_as_batch(src_sents_trunc),
                                         trg=mark_as_batch(trg_sents_trunc),
                                         src_mask=None, trg_mask=None).value()
     self.assertAlmostEqual(single_loss, sum(batched_loss), places=4)
-  
+
   def test_loss_model1(self):
     model = DefaultTranslator(
               src_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
@@ -96,9 +96,9 @@ class TestTruncatedBatchTraining(unittest.TestCase):
             )
     model.set_train(False)
     self.assert_single_loss_equals_batch_loss(model)
-    
+
 class TestBatchTraining(unittest.TestCase):
-  
+
   def setUp(self):
     self.model_context = ModelContext()
     self.model_context.dynet_param_collection = PersistentParamCollection("some_file", 1)
@@ -106,7 +106,7 @@ class TestBatchTraining(unittest.TestCase):
                                               train_trg = "examples/data/head.en",
                                               dev_src = "examples/data/head.ja",
                                               dev_trg = "examples/data/head.en")
-    self.corpus_parser = BilingualCorpusParser(src_reader = PlainTextReader(), 
+    self.corpus_parser = BilingualCorpusParser(src_reader = PlainTextReader(),
                                           trg_reader = PlainTextReader())
     self.corpus_parser.read_training_corpus(self.training_corpus)
 
@@ -115,7 +115,6 @@ class TestBatchTraining(unittest.TestCase):
     Tests whether single loss equals batch loss.
     Here we don't truncate the target side and use masking.
     """
-    batch_size = 5
     batch_size = 5
     src_sents = self.training_corpus.train_src_data[:batch_size]
     src_min = min([len(x) for x in src_sents])
@@ -128,21 +127,21 @@ class TestBatchTraining(unittest.TestCase):
       for j in range(len(trg_sents[i]), trg_max):
         trg_masks[i,j] = 1.0
     trg_sents_padded = [[w for w in s] + [Vocab.ES]*(trg_max-len(s)) for s in trg_sents]
-    
+
     single_loss = 0.0
     for sent_id in range(batch_size):
       dy.renew_cg()
-      train_loss = model.calc_loss(src=src_sents_trunc[sent_id], 
+      train_loss = model.calc_loss(src=src_sents_trunc[sent_id],
                                    trg=trg_sents[sent_id]).value()
       single_loss += train_loss
-    
+
     dy.renew_cg()
-    
-    batched_loss = model.calc_loss(src=mark_as_batch(src_sents_trunc), 
+
+    batched_loss = model.calc_loss(src=mark_as_batch(src_sents_trunc),
                                    trg=mark_as_batch(trg_sents_padded),
                                    trg_mask=trg_masks).value()
     self.assertAlmostEqual(single_loss, sum(batched_loss), places=4)
-  
+
   def test_loss_model1(self):
     model = DefaultTranslator(
               src_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
@@ -175,10 +174,10 @@ class TestBatchTraining(unittest.TestCase):
             )
     model.set_train(False)
     self.assert_single_loss_equals_batch_loss(model)
-    
+
 
 class TestTrainDevLoss(unittest.TestCase):
-  
+
   def test_train_dev_loss_equal(self):
     self.model_context = ModelContext()
     self.model_context.dynet_param_collection = PersistentParamCollection("some_file", 1)
@@ -189,7 +188,7 @@ class TestTrainDevLoss(unittest.TestCase):
                                                             train_trg = "examples/data/head.en",
                                                             dev_src = "examples/data/head.ja",
                                                             dev_trg = "examples/data/head.en")
-    train_args['corpus_parser'] = BilingualCorpusParser(src_reader = PlainTextReader(), 
+    train_args['corpus_parser'] = BilingualCorpusParser(src_reader = PlainTextReader(),
                                                         trg_reader = PlainTextReader())
     train_args['model'] = DefaultTranslator(src_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
                                             encoder=LSTMEncoder(self.model_context),
@@ -208,7 +207,7 @@ class TestTrainDevLoss(unittest.TestCase):
                            xnmt_trainer.logger.dev_score.loss)
 
 class TestOverfitting(unittest.TestCase):
-  
+
   def test_overfitting(self):
     self.model_context = ModelContext()
     self.model_context.dynet_param_collection = PersistentParamCollection("some_file", 1)
@@ -220,7 +219,7 @@ class TestOverfitting(unittest.TestCase):
                                                             train_trg = "examples/data/head.en",
                                                             dev_src = "examples/data/head.ja",
                                                             dev_trg = "examples/data/head.en")
-    train_args['corpus_parser'] = BilingualCorpusParser(src_reader = PlainTextReader(), 
+    train_args['corpus_parser'] = BilingualCorpusParser(src_reader = PlainTextReader(),
                                                         trg_reader = PlainTextReader())
     train_args['model'] = DefaultTranslator(src_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
                                             encoder=LSTMEncoder(self.model_context),
@@ -234,7 +233,7 @@ class TestOverfitting(unittest.TestCase):
     xnmt_trainer.model_context = self.model_context
     for _ in range(1000):
       xnmt_trainer.run_epoch(update_weights=True)
-    self.assertAlmostEqual(0.0, 
+    self.assertAlmostEqual(0.0,
                            xnmt_trainer.logger.epoch_loss.loss_values['loss'] / xnmt_trainer.logger.epoch_words,
                            places=2)
 

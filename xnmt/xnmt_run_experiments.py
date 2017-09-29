@@ -28,6 +28,7 @@ def main(overwrite_args=None):
   argparser.add_argument("--dynet-viz", action='store_true', help="use visualization")
   argparser.add_argument("--dynet-gpu", action='store_true', help="use GPU acceleration")
   argparser.add_argument("--dynet-gpu-ids", type=int)
+  argparser.add_argument("--dynet-gpus", type=int)
   argparser.add_argument("--dynet-weight-decay", type=float)
   argparser.add_argument("--generate-doc", action='store_true', help="Do not run, output documentation instead")
   argparser.add_argument("experiments_file")
@@ -89,7 +90,7 @@ def main(overwrite_args=None):
     print("=> Running {}".format(experiment_name))
 
     exp_args = exp_tasks["experiment"]
-    if os.path.isfile(exp_args.out_file):
+    if os.path.isfile(exp_args.out_file) and not os.environ.get('TEST_FLAG'): 
       print("ERROR: log file %s already exists; please delete by hand if you want to overwrite it; skipping experiment.." % (exp_args.out_file,))
       continue
 
