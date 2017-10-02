@@ -267,7 +267,7 @@ class NetworkInNetworkBiRNNBuilder(object):
   and https://arxiv.org/pdf/1610.03022.pdf
   """
   def __init__(self, num_layers, input_dim, hidden_dim, model, batch_norm=False, stride=1,
-               num_projections=1, projection_enabled=True, nonlinearity="relu"):
+               num_projections=1, projection_enabled=True, nonlinearity="relu", weight_norm=False):
     """
     :param num_layers: depth of the network
     :param input_dim: size of the inputs
@@ -287,14 +287,14 @@ class NetworkInNetworkBiRNNBuilder(object):
     self.num_projections = num_projections
     self.projection_enabled = projection_enabled
     self.nonlinearity = nonlinearity
-    f = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, model)
-    b = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, model)
+    f = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, model, weight_norm=weight_norm)
+    b = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, model, weight_norm=weight_norm)
     self.use_bn = batch_norm
     bn = BatchNorm(model, hidden_dim, 2)
     self.builder_layers.append((f, b, bn))
     for _ in xrange(num_layers - 1):
-      f = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, model)
-      b = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, model)
+      f = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, model, weight_norm=weight_norm)
+      b = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, model, weight_norm=weight_norm)
       bn = BatchNorm(model, hidden_dim, 2) if batch_norm else None
       self.builder_layers.append((f, b, bn))
     self.lintransf_layers = []

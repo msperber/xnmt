@@ -116,14 +116,14 @@ class PyramidalLSTMEncoder(BuilderEncoder, Serializable):
 class NetworkInNetworkBiLSTMEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!NetworkInNetworkBiLSTMEncoder'
   
-  def __init__(self, context, input_dim, layers=1, hidden_dim=None, batch_norm=True, stride=1, num_projections=1, projection_enabled=True, nonlinearity="relu", dropout=None, weight_noise=None):
+  def __init__(self, context, input_dim, layers=1, hidden_dim=None, batch_norm=True, stride=1, num_projections=1, projection_enabled=True, nonlinearity="relu", dropout=None, weight_noise=None, weight_norm=False):
     hidden_dim = hidden_dim or context.default_layer_dim
     self.dropout = dropout or context.dropout
     self.weight_noise = weight_noise  or context.weight_noise
     model = context.dynet_param_collection.param_col
     self.builder = xnmt.lstm.NetworkInNetworkBiRNNBuilder(layers, input_dim, hidden_dim, model, 
                                             batch_norm, stride, num_projections, 
-                                            projection_enabled, nonlinearity)
+                                            projection_enabled, nonlinearity, weight_norm=weight_norm)
   @recursive
   def set_train(self, val):
     self.builder.set_dropout(self.dropout if val else 0.0)
