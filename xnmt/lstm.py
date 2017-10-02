@@ -3,7 +3,6 @@ import numpy as np
 from xnmt.encoder_state import FinalEncoderState, PseudoState
 from xnmt.expression_sequence import ExpressionSequence, ReversedExpressionSequence
 from xnmt.batch_norm import BatchNorm
-import math
 
 class LSTMState(object):
   def __init__(self, builder, h_t=None, c_t=None, state_idx=-1, prev_state=None):
@@ -33,7 +32,7 @@ class CustomCompactLSTMBuilder(object):
   It works similar to DyNet's CompactVanillaLSTMBuilder, but in addition supports
   taking multiple inputs that are concatenated on-the-fly.
   """
-  def __init__(self, layers, input_dim, hidden_dim, model):
+  def __init__(self, layers, input_dim, hidden_dim, model, weight_norm = False):
     if layers!=1: raise RuntimeError("CustomCompactLSTMBuilder supports only exactly one layer")
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
@@ -42,6 +41,11 @@ class CustomCompactLSTMBuilder(object):
     self.p_Wx = model.add_parameters(dim=(hidden_dim*4, input_dim))
     self.p_Wh = model.add_parameters(dim=(hidden_dim*4, hidden_dim))
     self.p_b  = model.add_parameters(dim=(hidden_dim*4,), init=dy.ConstInitializer(0.0))
+    
+    self.weight_norm = weight_norm
+    if weight_norm:
+      self.p_wn_wx_g = model.add_parameters(dim=(1,), init=dy.ConstInitializer(1.0))
+      self.p_wn_wh_g = model.add_parameters(dim=(1,), init=dy.ConstInitializer(1.0))
 
     self.dropout_rate = 0.0
     self.weightnoise_std = 0.0
@@ -73,6 +77,9 @@ class CustomCompactLSTMBuilder(object):
     self.Wx = dy.parameter(self.p_Wx)
     self.Wh = dy.parameter(self.p_Wh)
     self.b = dy.parameter(self.p_b)
+    if self.weight_norm:
+      self.Wx = dy.weight_norm(self.Wx, dy.parameter(self.p_wn_wx_g))
+      self.Wh = dy.weight_norm(self.Wh, dy.parameter(self.p_wn_wh_g))
     self.dropout_mask_x = None
     self.dropout_mask_h = None
     if vecs is not None:
@@ -155,13 +162,13 @@ class BiCompactLSTMBuilder:
   This implements a bidirectional LSTM and requires about 8.5% less memory per timestep
   than the native CompactVanillaLSTMBuilder due to avoiding concat operations.
   """
-  def __init__(self, num_layers, input_dim, hidden_dim, model):
+  def __init__(self, num_layers, input_dim, hidden_dim, model, weight_norm = False):
     self.num_layers = num_layers
     assert hidden_dim % 2 == 0
-    self.forward_layers = [CustomCompactLSTMBuilder(1, input_dim, hidden_dim/2, model)]
-    self.backward_layers = [CustomCompactLSTMBuilder(1, input_dim, hidden_dim/2, model)]
-    self.forward_layers += [CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim/2, model) for _ in range(num_layers-1)]
-    self.backward_layers += [CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim/2, model) for _ in range(num_layers-1)]
+    self.forward_layers = [CustomCompactLSTMBuilder(1, input_dim, hidden_dim/2, model, weight_norm=weight_norm)]
+    self.backward_layers = [CustomCompactLSTMBuilder(1, input_dim, hidden_dim/2, model, weight_norm=weight_norm)]
+    self.forward_layers += [CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim/2, model, weight_norm=weight_norm) for _ in range(num_layers-1)]
+    self.backward_layers += [CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim/2, model, weight_norm=weight_norm) for _ in range(num_layers-1)]
 
   def get_final_states(self):
     return self._final_states

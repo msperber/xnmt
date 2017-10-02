@@ -63,7 +63,7 @@ class IdentityEncoder(Encoder, Serializable):
 class LSTMEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!LSTMEncoder'
 
-  def __init__(self, context, input_dim=None, layers=1, hidden_dim=None, dropout=None, bidirectional=True):
+  def __init__(self, context, input_dim=None, layers=1, hidden_dim=None, dropout=None, bidirectional=True, weight_norm=False):
     model = context.dynet_param_collection.param_col
     input_dim = input_dim or context.default_layer_dim
     hidden_dim = hidden_dim or context.default_layer_dim
@@ -73,9 +73,9 @@ class LSTMEncoder(BuilderEncoder, Serializable):
     self.hidden_dim = hidden_dim
     self.dropout = dropout
     if bidirectional:
-      self.builder = xnmt.lstm.BiCompactLSTMBuilder(layers, input_dim, hidden_dim, model)
+      self.builder = xnmt.lstm.BiCompactLSTMBuilder(layers, input_dim, hidden_dim, model, weight_norm=weight_norm)
     else:
-      self.builder = xnmt.lstm.CustomCompactLSTMBuilder(layers, input_dim, hidden_dim, model)
+      self.builder = xnmt.lstm.CustomCompactLSTMBuilder(layers, input_dim, hidden_dim, model, weight_norm=weight_norm)
 
   @recursive
   def set_train(self, val):
