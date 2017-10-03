@@ -128,7 +128,7 @@ class StridedConvEncBuilder(object):
         cnn_layer = dy.bmax(cnn_layer, cnn_layer_alt)
       elif self.nonlinearity is not None:
         raise RuntimeError("unknown nonlinearity: %s" % self.nonlinearity)
-    mask_out = es.mask.lin_subsampled(trg_len=cnn_layer.dim()[0][0])
+    mask_out = None if es.mask is None else es.mask.lin_subsampled(trg_len=cnn_layer.dim()[0][0])
     if self.output_tensor:
       return ExpressionSequence(expr_tensor=cnn_layer, mask=mask_out)
     else:
