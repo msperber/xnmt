@@ -133,11 +133,12 @@ class NetworkInNetworkBiLSTMEncoder(BuilderEncoder, Serializable):
 class StridedConvEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!StridedConvEncoder'
   def __init__(self, context, input_dim, layers=1, chn_dim=3, num_filters=32, 
-               output_tensor=False, batch_norm=True, stride=(2,2), nonlinearity="relu", init_gauss_var=0.1):
+               output_tensor=False, batch_norm=True, stride=(2,2), nonlinearity="relu", 
+               init_gauss_var=0.1, transpose=True):
     model = context.dynet_param_collection.param_col
     self.builder = xnmt.conv_encoder.StridedConvEncBuilder(layers, input_dim, model, chn_dim, 
                                             num_filters, output_tensor, batch_norm,
-                                            stride, nonlinearity, init_gauss_var)
+                                            stride, nonlinearity, init_gauss_var, transpose)
   @recursive
   def set_train(self, val):
     self.builder.train = val

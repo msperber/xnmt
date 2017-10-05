@@ -2,6 +2,7 @@ import math
 import dynet as dy
 from xnmt.batch_norm import BatchNorm
 from xnmt.expression_sequence import ExpressionSequence
+
 class StridedConvEncBuilder(object):
   """
   Implements several strided CNN layers.
