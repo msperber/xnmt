@@ -168,6 +168,8 @@ class ContVecReader(InputReader, Serializable):
   be in either order, depending on the value of the "transpose" variable:
   * sents[sent_id][feat_ind,word_ind] if transpose=False
   * sents[sent_id][word_ind,feat_ind] if transpose=True
+  
+  The data returned by this reader will then be in [feat_ind, word_ind] order.
   """
   yaml_tag = u"!ContVecReader"
 

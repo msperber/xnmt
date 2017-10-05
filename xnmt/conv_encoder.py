@@ -9,7 +9,7 @@ class StridedConvEncBuilder(object):
     
   def __init__(self, layers, input_dim, model, chn_dim=3, num_filters=32, 
                output_tensor=False, batch_norm=False, stride=(2,2), nonlinearity="relu",
-               init_gauss_var=0.1):
+               init_gauss_var=0.1, transpose=True):
     """
     :param layers: encoder depth
     :param input_dim: size of the inputs, before factoring out the channels.
@@ -21,6 +21,7 @@ class StridedConvEncBuilder(object):
     :param batch_norm:
     :param stride:
     :param nonlinearity: "rely" / "maxout" / None
+    :param transpose: indicates that inputs will be given in feat x time format and need to be transposed
     """
     assert layers > 0
     assert input_dim % chn_dim == 0
@@ -37,6 +38,7 @@ class StridedConvEncBuilder(object):
     
     self.use_bn = batch_norm
     self.train = True
+    self.transpose = transpose
     
     normalInit=dy.NormalInitializer(0, init_gauss_var)
     self.bn_layers = []
@@ -90,8 +92,10 @@ class StridedConvEncBuilder(object):
 
   def transduce(self, es):
     es_expr = es.as_tensor()
+    if self.transpose:
+      es_expr = dy.transpose(es_expr, [1,0]) # TODO: to save memory, we could implement ExpressionSequence(transpose=True)
 
-    sent_len = es_expr.dim()[0][1]
+    sent_len = es_expr.dim()[0][0]
     batch_size=es_expr.dim()[1]
     
     # convolutions won't work if sentence length is too short; pad if necessary
@@ -106,10 +110,7 @@ class StridedConvEncBuilder(object):
     if es_expr.dim() == ((sent_len, self.freq_dim, self.chn_dim), batch_size):
       es_chn = es_expr
     else:
-      try:
-        es_chn = dy.reshape(es_expr, (sent_len, self.freq_dim, self.chn_dim), batch_size=batch_size)
-      except ValueError:
-        es_chn = dy.reshape(es_expr, (sent_len, self.freq_dim, self.chn_dim), batch_size=batch_size)
+      es_chn = dy.reshape(es_expr, (sent_len, self.freq_dim, self.chn_dim), batch_size=batch_size)
     cnn_layer = es_chn
     for layer_i in range(len(self.filters_layers)):
       cnn_layer_prev = cnn_layer
@@ -139,6 +140,7 @@ class StridedConvEncBuilder(object):
 
 
 class PoolingConvEncBuilder(object):
+  # TODO: buggy, needs proper transposing
   """
   Implements several CNN layers, with strided max pooling interspersed.
   """
