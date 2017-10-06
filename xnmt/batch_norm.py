@@ -27,10 +27,14 @@ class BatchNorm(object):
   def get_stat_dimensions(self):
     return range(self.num_dim-1)
 
-  def bn_expr(self, input_expr, train):
+  def bn_expr(self, input_expr, train, mask=None):
     param_bn_gamma = dy.parameter(self.bn_gamma)
     param_bn_beta = dy.parameter(self.bn_beta)
     if train:
+      if mask is not None:
+        input_expr = mask.set_masked_to_mean(input_expr, mask)
+      # TODO:
+      # - allow overwriting 'n' (normalizer) in moment_dim and std_dim, set to # unmasked items
       bn_mean = dy.moment_dim(input_expr, self.get_stat_dimensions(), 1, True)
       neg_bn_mean_reshaped = -dy.reshape(-bn_mean, self.get_normalizer_dimensionality())
       self.bn_population_running_mean += -BatchNorm.bn_momentum*self.bn_population_running_mean + BatchNorm.bn_momentum * bn_mean.npvalue()

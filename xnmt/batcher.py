@@ -50,6 +50,23 @@ class Mask(object):
         mask_expr = dy.inputTensor(np.expand_dims(self.np_arr.transpose(), axis=1), batched=True)
       return tensor_expr + mask_expr
 
+  def set_masked_to_mean(self, tensor_expr):
+    """
+    Set masked parts of the tensor expr to the mean of the unmasked parts.
+    """
+    # TODO: might cache these expressions to save memory
+    if np.count_nonzero(self.np_arr) == 0:
+      return tensor_expr
+    else:
+      # TODO:
+      # - implement sum_dim
+      # - check if we need any broadcasts or reshapes
+      inv_mask_expr = dy.inputTensor(1.0 - self.np_arr.transpose(), batched=True)
+      unmasked = dy.cmult(tensor_expr, inv_mask_expr)
+      unmasked_mean = dy.sum_dim(unmasked, all dims) / dy.inputTensor(np.asarray([self.np_arr.size - np.count_nonzero(self.np_arr)]), batched=False)
+      mask_expr = dy.cmult(dy.inputTensor(self.np_arr.transpose(), batched=True), unmasked_mean) 
+      return ret_expr + mask_expr
+
   def cmult_by_timestep_expr(self, expr, timestep, inverse=False):
     # TODO: might cache these expressions to save memory
     """

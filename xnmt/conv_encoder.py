@@ -113,6 +113,7 @@ class StridedConvEncBuilder(object):
     else:
       es_chn = dy.reshape(es_expr, (sent_len, self.freq_dim, self.chn_dim), batch_size=batch_size)
     cnn_layer = es_chn
+    mask_out = None
     for layer_i in range(len(self.filters_layers)):
       cnn_layer_prev = cnn_layer
       filters = self.filters_layers[layer_i]
@@ -121,7 +122,8 @@ class StridedConvEncBuilder(object):
         filters_alt = self.filters_alt_layers[layer_i]
         cnn_layer_alt = dy.conv2d(cnn_layer_prev, dy.parameter(filters_alt), stride=self.get_stride_for_layer(layer_i), is_valid=True)
       if self.use_bn:
-        cnn_layer = self.bn_layers[layer_i].bn_expr(cnn_layer, train=self.train)
+        mask_out = None if es.mask is None else es.mask.lin_subsampled(trg_len=cnn_layer.dim()[0][0])
+        cnn_layer = self.bn_layers[layer_i].bn_expr(cnn_layer, train=self.train, mask=mask_out)
         if self.nonlinearity=="maxout":
           cnn_layer_alt = self.bn_alt_layers[layer_i].bn_expr(cnn_layer_alt, train=self.train)
       if self.nonlinearity=="relu":
