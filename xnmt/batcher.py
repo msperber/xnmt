@@ -40,34 +40,45 @@ class Mask(object):
       
   
   def add_to_tensor_expr(self, tensor_expr, multiplicator=None):
+    assert tensor_expr.dim()[1]>1 or self.np_arr.shape[0]==1
     # TODO: might cache these expressions to save memory
     if np.count_nonzero(self.np_arr) == 0:
       return tensor_expr
     else:
+      # fill dims up with 1's in the beginning so that number of dims match:
+      reshape_size = [1] * (len(tensor_expr.dim()[0]) - len(self.np_arr.shape) + 1) + list(reversed(self.np_arr.shape))
       if multiplicator is not None:
-        mask_expr = dy.inputTensor(np.expand_dims(self.np_arr.transpose(), axis=1) * multiplicator, batched=True)
+        mask_expr = dy.inputTensor(np.reshape(self.np_arr.transpose(), reshape_size) * multiplicator, batched=True)
       else:
-        mask_expr = dy.inputTensor(np.expand_dims(self.np_arr.transpose(), axis=1), batched=True)
+        mask_expr = dy.inputTensor(np.reshape(self.np_arr.transpose(), reshape_size), batched=True)
       return tensor_expr + mask_expr
 
-  def set_masked_to_mean(self, tensor_expr):
+  def broadcast_factor(self, tensor_expr):
+    """
+    returns product(tensor_expr dims) / product(mask dims)
+    """
+    tensor_expr_size = tensor_expr.dim()[1]
+    for d in tensor_expr.dim()[0]: tensor_expr_size *= d
+    return d / self.np_arr.size
+
+  def set_masked_to_mean(self, tensor_expr, is_transposed=False):
     """
     Set masked parts of the tensor expr to the mean of the unmasked parts.
     """
-    # TODO: might cache these expressions to save memory
     if np.count_nonzero(self.np_arr) == 0:
       return tensor_expr
     else:
-      # TODO:
-      # - implement sum_dim
-      # - check if we need any broadcasts or reshapes
-      inv_mask_expr = dy.inputTensor(1.0 - self.np_arr.transpose(), batched=True)
+      if is_transposed:
+        reshape_size = list(reversed(self.np_arr.shape[1:])) + [1] * (len(tensor_expr.dim()[0]) - len(self.np_arr.shape) + 1) + [self.np_arr.shape[0]]
+      else:
+        reshape_size = [1] * (len(tensor_expr.dim()[0]) - len(self.np_arr.shape) + 1) + list(reversed(self.np_arr.shape))
+      inv_mask_expr = dy.inputTensor(1.0 - np.reshape(self.np_arr.transpose(), reshape_size), batched=True)
       unmasked = dy.cmult(tensor_expr, inv_mask_expr)
       unmasked_mean = unmasked
-      while sum(unmasked_mean.dim()[0]) > 1: # loop because mean_dim only support reducing up to 2 dimensions at a time
+      while sum(unmasked_mean.dim()[0]) > 1: # loop because mean_dim only supports reducing up to 2 dimensions at a time
         unmasked_mean = dy.mean_dim(unmasked_mean, range(min(2,len(unmasked_mean.dim()[0]))), unmasked_mean.dim()[1]>1, n=1) # this is mean without normalization == sum
-      unmasked_mean = dy.cdiv(unmasked_mean, dy.inputTensor(np.asarray([self.np_arr.size - np.count_nonzero(self.np_arr)]), batched=False))
-      mask_expr = dy.cmult(dy.inputTensor(self.np_arr.transpose(), batched=True), unmasked_mean)
+      unmasked_mean = dy.cdiv(unmasked_mean, dy.inputTensor(np.asarray([(self.np_arr.size - np.count_nonzero(self.np_arr)) * self.broadcast_factor(tensor_expr)]), batched=False))
+      mask_expr = dy.cmult(dy.inputTensor(np.reshape(self.np_arr.transpose(), reshape_size), batched=True), unmasked_mean)
       return unmasked + mask_expr
 
   def cmult_by_timestep_expr(self, expr, timestep, inverse=False):

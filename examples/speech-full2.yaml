@@ -33,7 +33,7 @@ defaults:
           input_dim: 120
           chn_dim: 3
           num_filters: 32
-          batch_norm: True
+          batch_norm: False
           stride:
           - !!python/tuple [2,2]
           - !!python/tuple [2,2]
@@ -46,7 +46,7 @@ defaults:
           input_dim: 224
           batch_norm: False
           hidden_dim: 512
-          projection_enabled: True
+          projection_enabled: False
           nonlinearity: relu
         - !LSTMEncoder
           bidirectional: True
