@@ -28,7 +28,7 @@ defaults:
       encoder: !ModularEncoder
         modules:
         - !StridedConvEncoder
-          layers: 3
+          layers: 2
           output_tensor: False
           input_dim: 120
           chn_dim: 3
@@ -37,21 +37,21 @@ defaults:
           stride:
           - !!python/tuple [2,2]
           - !!python/tuple [2,2]
-          - !!python/tuple [2,1]
           nonlinearity: relu
+          init_gauss_var: 0.0001
         - !NetworkInNetworkBiLSTMEncoder
-          layers: 2
+          layers: 1
           stride: 1
           num_projections: 1
-          input_dim: 224
+          input_dim: 288
           batch_norm: False
-          hidden_dim: 512
-          projection_enabled: False
+          hidden_dim: 64
+          projection_enabled: True
           nonlinearity: relu
         - !LSTMEncoder
           bidirectional: True
           layers: 1
-          input_dim: 512
+          input_dim: 64
           hidden_dim: 64
       attender: !StandardAttender
         state_dim: 64
