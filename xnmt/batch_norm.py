@@ -31,15 +31,15 @@ class BatchNorm(object):
     param_bn_gamma = dy.parameter(self.bn_gamma)
     param_bn_beta = dy.parameter(self.bn_beta)
     if train:
+      num_unmasked = 0
       if mask is not None:
-        input_expr = mask.set_masked_to_mean(input_expr, mask)
-      # TODO:
-      # - allow overwriting 'n' (normalizer) in moment_dim and std_dim, set to # unmasked items
-      bn_mean = dy.moment_dim(input_expr, self.get_stat_dimensions(), 1, True)
+        input_expr = mask.set_masked_to_mean(input_expr)
+        num_unmasked = mask.np_arr.size - np.count_nonzero(mask.np_arr)
+      bn_mean = dy.moment_dim(input_expr, self.get_stat_dimensions(), 1, True, num_unmasked)
       neg_bn_mean_reshaped = -dy.reshape(-bn_mean, self.get_normalizer_dimensionality())
-      self.bn_population_running_mean += -BatchNorm.bn_momentum*self.bn_population_running_mean + BatchNorm.bn_momentum * bn_mean.npvalue()
-      bn_std = dy.std_dim(input_expr, self.get_stat_dimensions(), True)
-      self.bn_population_running_std += -BatchNorm.bn_momentum*self.bn_population_running_std + BatchNorm.bn_momentum * bn_std.npvalue()
+      self.bn_population_running_mean += (-BatchNorm.bn_momentum)*self.bn_population_running_mean + BatchNorm.bn_momentum * bn_mean.npvalue()
+      bn_std = dy.std_dim(input_expr, self.get_stat_dimensions(), True, num_unmasked)
+      self.bn_population_running_std += (-BatchNorm.bn_momentum)*self.bn_population_running_std + BatchNorm.bn_momentum * bn_std.npvalue()
     else:
       neg_bn_mean_reshaped = -dy.reshape(dy.inputVector(self.bn_population_running_mean), self.get_normalizer_dimensionality())
       bn_std = dy.inputVector(self.bn_population_running_std)

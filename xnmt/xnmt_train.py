@@ -71,7 +71,7 @@ class XnmtTrainer(object):
     :param need_deserialization: Whether we need to invoke model_serializer.initialize_object on objects in args;
         This is usually the case when these have been deserialized from a YAML file, but not when instantiating XnmtTrainer manually.
     """
-    dy.renew_cg()
+    dy.renew_cg(immediate_compute=True)
 
     self.need_deserialization = need_deserialization
     self.args = args
@@ -192,7 +192,7 @@ class XnmtTrainer(object):
       trg = self.train_trg[batch_num]
 
       # Loss calculation
-      dy.renew_cg()
+      dy.renew_cg(immediate_compute=True)
       loss_builder = LossBuilder()
       standard_loss = self.model.calc_loss(src, trg)
 
