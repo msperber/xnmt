@@ -62,7 +62,7 @@ class Mask(object):
     """
     tensor_expr_size = tensor_expr.dim()[1]
     for d in tensor_expr.dim()[0]: tensor_expr_size *= d
-    return d / self.np_arr.size
+    return tensor_expr_size / self.np_arr.size
   
   def mask_reshape_size(self, tensor_dim, time_first=False):
     if time_first:
