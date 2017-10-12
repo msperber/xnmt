@@ -33,7 +33,7 @@ defaults:
           input_dim: 120
           chn_dim: 3
           num_filters: 32
-          batch_norm: False
+          batch_norm: True
           stride:
           - !!python/tuple [2,2]
           - !!python/tuple [2,2]

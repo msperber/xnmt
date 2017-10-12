@@ -27,12 +27,12 @@ class BatchNorm(object):
   def get_stat_dimensions(self):
     return range(self.num_dim-1)
 
-  def bn_expr(self, input_expr, train, mask=None, is_transposed=False):
+  def __call__(self, input_expr, train, mask=None, time_first=False):
     """
     :param input_expr:
     :param train: if True, compute batch statistics, if False, use precomputed statistics
     :param mask: compute statistics only over unmasked parts of the input expression
-    :param is_transposed: if False, assume dim[hidden..][time][batch]; if True, assume dim[time][hidden..][batch] 
+    :param time_first: if False, assume input_expr[hidden..][time][batch]; if True, assume input_expr[time][hidden..][batch] 
     """
     dim_in = input_expr.dim()
     param_bn_gamma = dy.parameter(self.bn_gamma)
@@ -40,7 +40,7 @@ class BatchNorm(object):
     if train:
       num_unmasked = 0
       if mask is not None:
-        input_expr = mask.set_masked_to_mean(input_expr, is_transposed)
+        input_expr = mask.set_masked_to_mean(input_expr, time_first)
         num_unmasked = (mask.np_arr.size - np.count_nonzero(mask.np_arr)) * mask.broadcast_factor(input_expr)
       bn_mean = dy.moment_dim(input_expr, self.get_stat_dimensions(), 1, True, num_unmasked)
       neg_bn_mean_reshaped = -dy.reshape(-bn_mean, self.get_normalizer_dimensionality())
