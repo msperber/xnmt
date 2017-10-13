@@ -6,13 +6,15 @@ class BatchNorm(object):
   bn_eps = 0.1
   bn_momentum = 0.1
 
-  def __init__(self, model, hidden_dim, num_dim):
+  def __init__(self, model, hidden_dim, num_dim, time_first=True):
     self.hidden_dim = hidden_dim
     self.num_dim = num_dim
     self.bn_gamma = model.add_parameters(dim=self.get_normalizer_dimensionality(), init=dy.ConstInitializer(1.0))
     self.bn_beta = model.add_parameters(dim=self.get_normalizer_dimensionality(), init=dy.ConstInitializer(0.0))
     self.bn_population_running_mean = np.zeros((hidden_dim, ))
     self.bn_population_running_std = np.ones((hidden_dim, ))
+    self.time_first = time_first
+    if not self.time_first: raise RuntimeError("time_first=False may be broken & needs to be fixed")
     
   def get_normalizer_dimensionality(self):
     if self.num_dim == 1:
@@ -27,7 +29,7 @@ class BatchNorm(object):
   def get_stat_dimensions(self):
     return range(self.num_dim-1)
 
-  def __call__(self, input_expr, train, mask=None, time_first=False):
+  def __call__(self, input_expr, train, mask=None):
     """
     :param input_expr:
     :param train: if True, compute batch statistics, if False, use precomputed statistics
@@ -40,7 +42,7 @@ class BatchNorm(object):
     if train:
       num_unmasked = 0
       if mask is not None:
-        input_expr = mask.set_masked_to_mean(input_expr, time_first)
+        input_expr = mask.set_masked_to_mean(input_expr, self.time_first)
         num_unmasked = (mask.np_arr.size - np.count_nonzero(mask.np_arr)) * mask.broadcast_factor(input_expr)
       bn_mean = dy.moment_dim(input_expr, self.get_stat_dimensions(), 1, True, num_unmasked)
       neg_bn_mean_reshaped = -dy.reshape(-bn_mean, self.get_normalizer_dimensionality())

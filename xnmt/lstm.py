@@ -260,6 +260,124 @@ class CustomLSTMBuilder(object):
       h.append(dy.cmult(i_ot, dy.tanh(c[-1])))
     return h
   
+class ResConvLSTMBuilder(object):
+  def __init__(self, input_dim, model, num_filters=32):
+    if input_dim%num_filters!=0: raise RuntimeError("input_dim must be divisible by num_filters")
+    self.input_dim = input_dim
+
+    self.num_filters = num_filters
+    self.freq_dim = input_dim / num_filters
+    
+    self.convLstm1 = ConvLSTMBuilder(input_dim, model, num_filters, num_filters)
+    self.convLstm2 = ConvLSTMBuilder(input_dim, model, num_filters, num_filters)
+    self.bn1 = BatchNorm(model, num_filters, 3)
+    self.bn2 = BatchNorm(model, num_filters, 3)
+    self.train = True
+    
+  def transduce(self, es):
+    # TODO: masking
+    l1 = dy.rectify(self.bn1(self.convLstm1.transduce(es), train=self.train))
+    l2 = self.bn2(self.convLstm2.transduce(l1), train=self.train)
+    res = dy.rectify(es + l2)
+    return res
+    
+  
+class ConvLSTMBuilder(object):
+  """
+  This is a ConvLSTM implementation using a single bidirectional layer.
+  """
+  def __init__(self, input_dim, model, chn_dim=3, num_filters=32, residual=True):
+    if input_dim%chn_dim!=0: raise RuntimeError("input_dim must be divisible by chn_dim")
+    self.input_dim = input_dim
+
+    self.chn_dim = chn_dim
+    self.freq_dim = input_dim / chn_dim
+    self.num_filters = num_filters
+    self.filter_size_time = 1
+    self.filter_size_freq = 3
+    self.residual = residual # TODO: remove
+    if residual and chn_dim!=num_filters: raise RuntimeError("Residual connections required chn_dim==num_filters, but found %s != %s" % (chn_dim, num_filters))
+    normalInit=dy.NormalInitializer(0, 0.1)
+
+    self.params = {}
+    for direction in ["fwd","bwd"]:
+      self.params["x2all_" + direction] = \
+          model.add_parameters(dim=(self.filter_size_time, self.filter_size_freq, 
+                                    self.chn_dim, self.num_filters * 4),
+                               init=normalInit)
+      self.params["h2all_" + direction] = \
+          model.add_parameters(dim=(self.filter_size_time, self.filter_size_freq, 
+                                    self.num_filters, self.num_filters * 4),
+                               init=normalInit)
+      self.params["b_" + direction] = \
+          model.add_parameters(dim=(self.num_filters * 4,), init=normalInit)
+    
+  def whoami(self): return "ConvLSTMBuilder"
+  
+  def set_dropout(self, p):
+    if p>0.0: raise RuntimeError("ConvLSTMBuilder does not support dropout")
+  def disable_dropout(self):
+    pass
+  def initial_state(self):
+    return self
+  def add_inputs(self):
+    pass
+  def transduce(self, es):
+    # TODO:
+    # - transform
+    # - masking
+    sent_len = len(es)
+    es_expr = es.as_tensor()
+    batch_size=es_expr.dim()[1]
+    
+    if es_expr.dim() == ((sent_len, self.freq_dim, self.chn_dim), batch_size):
+      es_chn = es_expr
+    else:
+      es_chn = dy.reshape(es_expr, (sent_len, self.freq_dim, self.chn_dim), batch_size=batch_size)
+
+    h_out = {}
+    for direction in ["fwd", "bwd"]:
+      # input convolutions
+      gates_xt_bias = dy.conv2d_bias(es_chn, dy.parameter(self.params["x2all_" + direction]), dy.parameter(self.params["b_" + direction]), stride=(1,1), is_valid=False)
+      gates_xt_bias_list = [dy.pick_range(gates_xt_bias, i, i+1) for i in range(gates_xt_bias.dim()[0][0])]
+
+      h = []
+      c = []
+      for input_pos in range(len(gates_xt_bias_list)):
+        directional_pos = input_pos if direction=="fwd" else len(gates_xt_bias_list)-input_pos-1
+        gates_t = gates_xt_bias_list[directional_pos]
+        if input_pos>0:
+          # recurrent convolutions
+          gates_h_t = dy.conv2d(h[-1], dy.parameter(self.params["h2all_" + direction]), stride=(1,1), is_valid=False)
+          gates_t += gates_h_t
+        
+        # standard LSTM logic
+        if len(c)==0:
+          c_tm1 = dy.zeros((self.freq_dim * self.num_filters,), batch_size=batch_size)
+        else:
+          c_tm1 = c[-1]
+        # TODO: to save memory, could extend vanilla_lstm_c, vanilla_lstm_h to allow arbitrary tensors instead of just vectors; then we can avoid the reshapes below
+        gates_t_reshaped = dy.reshape(gates_t, (4 * self.freq_dim * self.num_filters,), batch_size=batch_size)
+        c_t = dy.reshape(dy.vanilla_lstm_c(c_tm1, gates_t_reshaped), (self.freq_dim * self.num_filters,), batch_size=batch_size) 
+        c.append(c_t)
+        h_t = dy.vanilla_lstm_h(c_t, gates_t_reshaped)
+        h.append(dy.reshape(h_t, (1, self.freq_dim, self.num_filters, ), batch_size=batch_size))
+      h_out[direction] = h
+    ret_expr = []
+    for state_i in range(len(h_out["fwd"])):
+      state_fwd = h_out["fwd"][state_i]
+      state_bwd = h_out["bwd"][-1-state_i]
+      output_dim = (state_fwd.dim()[0][1] * state_fwd.dim()[0][2],)
+      if self.residual:
+        fwd_reshape = dy.reshape(state_fwd + dy.pick_range(es_chn, state_i, state_i+1), output_dim, batch_size=batch_size)
+        bwd_reshape = dy.reshape(state_bwd + dy.pick_range(es_chn, state_i, state_i+1), output_dim, batch_size=batch_size)
+      else:
+        fwd_reshape = dy.reshape(state_fwd, output_dim, batch_size=batch_size)
+        bwd_reshape = dy.reshape(state_bwd, output_dim, batch_size=batch_size)
+      ret_expr.append(dy.concatenate([fwd_reshape, bwd_reshape]))
+    return ret_expr
+    
+
 class NetworkInNetworkBiRNNBuilder(object):
   """
   Builder for NiN-interleaved RNNs that delegates to regular RNNs and wires them together.
@@ -384,8 +502,7 @@ class NetworkInNetworkBiRNNBuilder(object):
       bn_layer = bn(dy.concatenate([dy.reshape(x, (1,self.hidden_dim), batch_size=batch_size) for x in projections], 
                                 0), 
                  train=self.train,
-                 mask=downsampled_mask,
-                 time_first=True)
+                 mask=downsampled_mask)
       nonlin = self.apply_nonlinearity(bn_layer)
       es = [dy.pick(nonlin, i) for i in range(nonlin.dim()[0][0])]
     else:

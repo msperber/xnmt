@@ -123,9 +123,9 @@ class StridedConvEncBuilder(object):
         cnn_layer_alt = dy.conv2d(cnn_layer_prev, dy.parameter(filters_alt), stride=self.get_stride_for_layer(layer_i), is_valid=True)
       if self.use_bn:
         mask_out = None if es.mask is None else es.mask.lin_subsampled(trg_len=cnn_layer.dim()[0][0])
-        cnn_layer = self.bn_layers[layer_i](cnn_layer, train=self.train, mask=mask_out, time_first=True)
+        cnn_layer = self.bn_layers[layer_i](cnn_layer, train=self.train, mask=mask_out)
         if self.nonlinearity=="maxout":
-          cnn_layer_alt = self.bn_alt_layers[layer_i](cnn_layer_alt, train=self.train, mask=mask_out, time_first=True)
+          cnn_layer_alt = self.bn_alt_layers[layer_i](cnn_layer_alt, train=self.train, mask=mask_out)
       if self.nonlinearity=="relu":
         cnn_layer = dy.rectify(cnn_layer)
       elif self.nonlinearity=="maxout":

@@ -130,6 +130,15 @@ class NetworkInNetworkBiLSTMEncoder(BuilderEncoder, Serializable):
     if self.weight_noise > 0.0:
       self.builder.set_weight_noise(self.weight_noise if val else 0.0)
 
+class ResConvLstmEncoder(BuilderEncoder, Serializable):
+  yaml_tag = u'!ResConvLstmEncoder'
+  def __init__(self, context, input_dim, num_filters=32, ):
+    model = context.dynet_param_collection.param_col
+    self.builder = xnmt.lstm.ResConvLSTMBuilder(input_dim, model, num_filters)
+  @recursive
+  def set_train(self, val):
+    self.builder.train = val
+
 class StridedConvEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!StridedConvEncoder'
   def __init__(self, context, input_dim, layers=1, chn_dim=3, num_filters=32, 
