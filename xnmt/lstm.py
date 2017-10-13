@@ -349,7 +349,7 @@ class NetworkInNetworkBiRNNBuilder(object):
       for pos in range(len(fs)):
         interleaved.append(fs[pos])
         interleaved.append(bs[-pos-1])
-      projected = self.apply_nin_projections(self.lintransf_layers[layer_i], interleaved, bn, stride=self.stride*2)
+      projected = self.apply_nin_projections(self.lintransf_layers[layer_i], interleaved, bn, stride=self.stride*2, downsampled_mask=mask_out)
       if es.mask is not None:
         projected_masked = []
         for i in range(len(projected)):
@@ -361,17 +361,19 @@ class NetworkInNetworkBiRNNBuilder(object):
       es = ExpressionSequence(expr_list = projected,
                               mask = mask_out)
     return es
-  def apply_nin_projections(self, lintransf_params, es, bn, stride):
+  def apply_nin_projections(self, lintransf_params, es, bn, stride, downsampled_mask=None):
     for proj_i in range(len(lintransf_params)):
-      es = self.apply_one_nin(es, bn, stride if proj_i==0 else 1, lintransf_params[proj_i])
+      es = self.apply_one_nin(es, bn, stride if proj_i==0 else 1, lintransf_params[proj_i], downsampled_mask)
     return es
-  def apply_one_nin(self, es, bn, stride, lintransf):
+  def apply_one_nin(self, es, bn, stride, lintransf, downsampled_mask=None):
     batch_size = es[0].dim()[1]
     if len(es)%stride!=0:
+      # TODO: could pad by replicating last timestep instead
       zero_pad = dy.inputTensor(np.zeros(es[0].dim()[0]+(es[0].dim()[1],)), batched=True)
       es.extend([zero_pad] * (stride-len(es)%stride))
     projections = []
     lintransf_param = dy.parameter(lintransf)
+    # TODO: could speed this up by putting time steps into the batch dimension and thereby avoiding the for loop
     for pos in range(0, len(es), stride):
       concat = dy.concatenate(es[pos:pos+stride])
       if self.projection_enabled:
@@ -379,9 +381,11 @@ class NetworkInNetworkBiRNNBuilder(object):
       else: proj = concat
       projections.append(proj)
     if self.use_bn:
-      bn_layer = bn.bn_expr(dy.concatenate([dy.reshape(x, (1,self.hidden_dim), batch_size=batch_size) for x in projections], 
+      bn_layer = bn(dy.concatenate([dy.reshape(x, (1,self.hidden_dim), batch_size=batch_size) for x in projections], 
                                 0), 
-                 train=self.train)
+                 train=self.train,
+                 mask=downsampled_mask,
+                 time_first=True)
       nonlin = self.apply_nonlinearity(bn_layer)
       es = [dy.pick(nonlin, i) for i in range(nonlin.dim()[0][0])]
     else:

@@ -44,7 +44,7 @@ defaults:
           stride: 1
           num_projections: 1
           input_dim: 288
-          batch_norm: False
+          batch_norm: True
           hidden_dim: 64
           projection_enabled: True
           nonlinearity: relu
