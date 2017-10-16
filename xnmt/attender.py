@@ -1,6 +1,6 @@
 import dynet as dy
-from xnmt.batcher import *
-from xnmt.serializer import *
+from xnmt.serializer import Serializable
+from xnmt.hier_model import HierarchicalModel, recursive
 
 class Attender(object):
   '''
@@ -20,14 +20,15 @@ class Attender(object):
     raise NotImplementedError('calc_attention must be implemented for Attender subclasses')
 
 
-class StandardAttender(Attender, Serializable):
+class StandardAttender(Attender, Serializable, HierarchicalModel):
   '''
   Implements the attention model of Bahdanau et. al (2014)
   '''
 
   yaml_tag = u'!StandardAttender'
 
-  def __init__(self, context, input_dim=None, state_dim=None, hidden_dim=None):
+  def __init__(self, context, input_dim=None, state_dim=None, hidden_dim=None,
+               dropout=None, dropout_scores=False):
     input_dim = input_dim or context.default_layer_dim
     state_dim = state_dim or context.default_layer_dim
     hidden_dim = hidden_dim or context.default_layer_dim
@@ -40,6 +41,9 @@ class StandardAttender(Attender, Serializable):
     self.pb = param_collection.add_parameters(hidden_dim)
     self.pU = param_collection.add_parameters((1, hidden_dim))
     self.curr_sent = None
+    self.dropout = dropout or context.dropout
+    self.dropout_scores = dropout_scores
+    self.train = False
 
   def init_sent(self, sent):
     self.attention_vecs = []
@@ -63,6 +67,9 @@ class StandardAttender(Attender, Serializable):
     scores = dy.transpose(U * h)
     if self.curr_sent.mask is not None:
       scores = self.curr_sent.mask.add_to_tensor_expr(scores, multiplicator = -100.0)
+    if self.train and self.dropout > 0.0 and self.dropout_scores:
+      dropout_mask = dy.random_bernoulli(scores.dim()[0], self.dropout, batch_size=scores.dim()[1])
+      scores = scores * dropout_mask
     normalized = dy.softmax(scores)
     self.attention_vecs.append(normalized)
     return normalized
@@ -70,5 +77,12 @@ class StandardAttender(Attender, Serializable):
   def calc_context(self, state):
     attention = self.calc_attention(state)
     I = self.curr_sent.as_tensor()
-    return I * attention
+    context = I * attention
+    if self.train and self.dropout > 0.0 and not self.dropout_scores:
+      context = dy.dropout(context, self.dropout)
+    return context
+  
+  @recursive
+  def set_train(self, val):
+    self.train = val
 

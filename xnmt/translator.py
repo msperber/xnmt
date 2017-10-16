@@ -79,6 +79,7 @@ class DefaultTranslator(Translator, Serializable, Reportable):
 
     self.register_hier_child(self.loss_calculator)
     self.register_hier_child(self.encoder)
+    self.register_hier_child(self.attender)
     self.register_hier_child(self.decoder)
     self.register_hier_child(self.src_embedder)
     self.register_hier_child(self.trg_embedder)
