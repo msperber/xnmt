@@ -39,6 +39,7 @@ defaults:
           - !!python/tuple [2,2]
           nonlinearity: relu
           init_gauss_var: 0.0001
+          weight_noise: 0.000001
         - !NetworkInNetworkBiLSTMEncoder
           layers: 1
           stride: 1
