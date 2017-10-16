@@ -67,7 +67,6 @@ class StandardAttender(Attender, Serializable, HierarchicalModel):
     scores = dy.transpose(U * h)
     if self.curr_sent.mask is not None:
       scores = self.curr_sent.mask.add_to_tensor_expr(scores, multiplicator = -100.0, time_first=True)
-      scores = self.curr_sent.mask.add_to_tensor_expr(scores, multiplicator = -100.0)
     if self.train and self.dropout > 0.0 and self.dropout_scores:
       dropout_mask = dy.random_bernoulli(scores.dim()[0], self.dropout, batch_size=scores.dim()[1])
       scores = scores * dropout_mask
