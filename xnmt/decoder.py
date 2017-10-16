@@ -1,7 +1,7 @@
 import dynet as dy
 from xnmt.serializer import Serializable
 import xnmt.batcher
-from xnmt.hier_model import HierarchicalModel,  recursive
+from xnmt.hier_model import HierarchicalModel, recursive
 import xnmt.linear
 
 class Decoder(HierarchicalModel):
