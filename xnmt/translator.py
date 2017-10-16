@@ -2,7 +2,6 @@ from __future__ import division, generators
 
 import six
 import plot
-import math
 import dynet as dy
 import numpy as np
 
@@ -17,7 +16,7 @@ from xnmt.output import TextOutput
 import xnmt.linear as linear
 from xnmt.model import GeneratorModel
 from xnmt.reports import Reportable
-from xnmt.decorators import recursive_assign, recursive, recursive_sum
+from xnmt.decorators import recursive_assign, recursive
 import xnmt.serializer
 import xnmt.evaluator
 from xnmt.batcher import mark_as_batch, is_batched

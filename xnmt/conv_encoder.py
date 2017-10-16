@@ -40,6 +40,7 @@ class StridedConvEncBuilder(object):
     self.use_bn = batch_norm
     self.train = True
     self.transpose = transpose
+    self.weight_noise = 0.0
     
     normalInit=dy.NormalInitializer(0, init_gauss_var)
     self.bn_layers = []
@@ -91,6 +92,9 @@ class StridedConvEncBuilder(object):
   def disable_dropout(self):
     pass
 
+  def set_weight_noise(self, v):
+    self.weight_noise = v
+
   def transduce(self, es):
     es_expr = es.as_tensor()
     if self.transpose:
@@ -117,10 +121,16 @@ class StridedConvEncBuilder(object):
     for layer_i in range(len(self.filters_layers)):
       cnn_layer_prev = cnn_layer
       filters = self.filters_layers[layer_i]
-      cnn_layer = dy.conv2d(cnn_layer, dy.parameter(filters), stride=self.get_stride_for_layer(layer_i), is_valid=True)
+      filter_params = dy.parameter(filters)
+      if self.weight_noise > 0.0:
+        filter_params = dy.noise(filter_params, self.weight_noise)
+      cnn_layer = dy.conv2d(cnn_layer, filter_params, stride=self.get_stride_for_layer(layer_i), is_valid=True)
       if self.nonlinearity=="maxout":
         filters_alt = self.filters_alt_layers[layer_i]
-        cnn_layer_alt = dy.conv2d(cnn_layer_prev, dy.parameter(filters_alt), stride=self.get_stride_for_layer(layer_i), is_valid=True)
+        filter_alt_params = dy.parameter(filters_alt)
+        if self.weight_noise > 0.0:
+          filter_alt_params = dy.noise(filter_alt_params, self.weight_noise)
+        cnn_layer_alt = dy.conv2d(cnn_layer_prev, filter_alt_params, stride=self.get_stride_for_layer(layer_i), is_valid=True)
       if self.use_bn:
         mask_out = None if es.mask is None else es.mask.lin_subsampled(trg_len=cnn_layer.dim()[0][0])
         cnn_layer = self.bn_layers[layer_i](cnn_layer, train=self.train, mask=mask_out)
