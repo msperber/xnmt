@@ -278,7 +278,9 @@ class ResConvLSTMBuilder(object):
     l1 = dy.rectify(self.bn1(self.convLstm1.transduce(es), train=self.train))
     l2 = self.bn2(self.convLstm2.transduce(l1, mask=es.mask), train=self.train)
     res = dy.rectify(es.as_tensor() + dy.transpose(dy.reshape(l2, (l2.dim()[0][0], l2.dim()[0][1]*l2.dim()[0][2]), batch_size=l2.dim()[1])))
-    return ExpressionSequence(expr_tensor=res, mask=es.mask)
+    ret = ExpressionSequence(expr_tensor=res, mask=es.mask)
+    assert len(es) == len(ret)
+    return ret
     
   
 class ConvLSTMBuilder(object):
