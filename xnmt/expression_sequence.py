@@ -61,7 +61,7 @@ class ExpressionSequence(object):
     if self.expr_list: return self.expr_list[key]
     else:
       if key < 0: key += len(self)
-      return dy.pick(self.expr_tensor, key)
+      return dy.pick(self.expr_tensor, key, dim=len(self.expr_tensor.dim()[0])-1)
 
   def as_list(self):
     """Get a list.
