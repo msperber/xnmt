@@ -95,6 +95,28 @@ class TestMask(unittest.TestCase):
     self.assertAlmostEqual(meaned.npvalue()[0,2,0], mean_manual, 5)
     self.assertAlmostEqual(meaned.npvalue()[4,1,0], mean_manual, 5)
 
+  def test_batch_random_no_ties(self):
+    src_sents = [xnmt.input.SimpleSentenceInput([0] * i) for i in range(1,7)]
+    trg_sents = [xnmt.input.SimpleSentenceInput([0] * ((i+3)%6 + 1)) for i in range(1,7)]
+    my_batcher = xnmt.batcher.from_spec("src", 3, src_pad_token=1, trg_pad_token=2)
+    _, trg = my_batcher.pack(src_sents, trg_sents)
+    l0 = len(trg[0][0])
+    for _ in range(10):
+      _, trg = my_batcher.pack(src_sents, trg_sents)
+      l = len(trg[0][0])
+      self.assertTrue(l==l0)
+
+  def test_batch_random_ties(self):
+    src_sents = [xnmt.input.SimpleSentenceInput([0] * 5) for _ in range(1,7)]
+    trg_sents = [xnmt.input.SimpleSentenceInput([0] * ((i+3)%6 + 1)) for i in range(1,7)]
+    my_batcher = xnmt.batcher.from_spec("src", 3, src_pad_token=1, trg_pad_token=2)
+    _, trg = my_batcher.pack(src_sents, trg_sents)
+    l0 = len(trg[0][0])
+    for _ in range(10):
+      _, trg = my_batcher.pack(src_sents, trg_sents)
+      l = len(trg[0][0])
+      if l!=l0: return
+    self.assertTrue(False)
 
 if __name__ == '__main__':
   unittest.main()
