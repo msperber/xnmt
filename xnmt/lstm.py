@@ -275,7 +275,6 @@ class ResConvLSTMBuilder(object):
     self.train = True
     
   def transduce(self, es):
-    # TODO: masking
     l1 = dy.rectify(self.bn1(self.convLstm1.transduce(es), train=self.train))
     l2 = self.bn2(self.convLstm2.transduce(l1, mask=es.mask), train=self.train)
     res = dy.rectify(es.as_tensor() + dy.transpose(dy.reshape(l2, (l2.dim()[0][0], l2.dim()[0][1]*l2.dim()[0][2]), batch_size=l2.dim()[1])))
@@ -335,8 +334,6 @@ class ConvLSTMBuilder(object):
   def add_inputs(self):
     pass
   def transduce(self, es, mask=None):
-    # TODO:
-    # - masking
     if self.input_transposed:
       es_expr = es
       sent_len = es.dim()[0][0]
@@ -373,13 +370,18 @@ class ConvLSTMBuilder(object):
         else:
           c_tm1 = c[-1]
         # TODO: to save memory, could extend vanilla_lstm_c, vanilla_lstm_h to allow arbitrary tensors instead of just vectors; then we can avoid the reshapes below
-        # reshape: merge time(=1) / frequency / channel dims
         gates_t_reshaped = dy.reshape(gates_t, (4 * self.freq_dim * self.num_filters,), batch_size=batch_size)
         c_t = dy.reshape(dy.vanilla_lstm_c(c_tm1, gates_t_reshaped), (self.freq_dim * self.num_filters,), batch_size=batch_size) 
-        c.append(c_t)
         h_t = dy.vanilla_lstm_h(c_t, gates_t_reshaped)
-        # reshape: split time(=1) / frequency / channel dims
-        h.append(dy.reshape(h_t, (1, self.freq_dim, self.num_filters, ), batch_size=batch_size))
+        h_t = dy.reshape(h_t, (1, self.freq_dim, self.num_filters, ), batch_size=batch_size)
+        
+        if mask is None or np.isclose(np.sum(mask.np_arr[:,input_pos:input_pos+1]), 0.0):
+          c.append(c_t)
+          h.append(h_t)
+        else:
+          c.append(mask.cmult_by_timestep_expr(c_t, input_pos, True) + mask.cmult_by_timestep_expr(c[-1], input_pos, False))
+          h.append(mask.cmult_by_timestep_expr(h_t, input_pos, True) + mask.cmult_by_timestep_expr(h[-1], input_pos, False))
+
       h_out[direction] = h
     ret_expr = []
     for state_i in range(len(h_out["fwd"])):
