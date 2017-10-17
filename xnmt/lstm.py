@@ -308,7 +308,7 @@ class ConvLSTMBuilder(object):
     self.num_filters = num_filters
     self.filter_size_time = 1
     self.filter_size_freq = 3
-    normalInit=dy.NormalInitializer(0, 0.01)
+    normalInit=dy.NormalInitializer(0, 0.001)
     self.reshape_output = reshape_output
     self.input_transposed = input_transposed
     
