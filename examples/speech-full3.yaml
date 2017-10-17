@@ -40,12 +40,12 @@ defaults:
           nonlinearity: relu
           init_gauss_var: 0.0001
         - !ResConvLstmEncoder
-          input_dim: 256
+          input_dim: 288
           num_filters: 32
         - !LSTMEncoder
           bidirectional: True
           layers: 1
-          input_dim: 64
+          input_dim: 213
           hidden_dim: 64
       attender: !StandardAttender
         state_dim: 64
