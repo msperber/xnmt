@@ -69,7 +69,7 @@ class StandardAttender(Attender, Serializable, HierarchicalModel):
       scores = self.curr_sent.mask.add_to_tensor_expr(scores, multiplicator = -100.0, time_first=True)
     if self.train and self.dropout > 0.0 and self.dropout_scores:
       dropout_mask = dy.random_bernoulli(scores.dim()[0], self.dropout, batch_size=scores.dim()[1])
-      scores = scores * dropout_mask
+      scores = dy.cmult(scores, dropout_mask)
     normalized = dy.softmax(scores)
     self.attention_vecs.append(normalized)
     return normalized
