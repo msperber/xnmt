@@ -1,4 +1,5 @@
 import math
+import numpy as np
 import dynet as dy
 from xnmt.batch_norm import BatchNorm
 from xnmt.expression_sequence import ExpressionSequence
@@ -10,7 +11,7 @@ class StridedConvEncBuilder(object):
     
   def __init__(self, layers, input_dim, model, chn_dim=3, num_filters=32, 
                output_tensor=False, batch_norm=False, stride=(2,2), nonlinearity="relu",
-               init_gauss_var=0.1, transpose=True):
+               init_gauss_var=0.1, transpose=True, residual=False):
     """
     :param layers: encoder depth
     :param input_dim: size of the inputs, before factoring out the channels.
@@ -36,6 +37,7 @@ class StridedConvEncBuilder(object):
     self.stride = stride
     self.output_tensor = output_tensor
     self.nonlinearity = nonlinearity
+    self.residual = residual
     
     self.use_bn = batch_norm
     self.train = True
@@ -142,6 +144,11 @@ class StridedConvEncBuilder(object):
         cnn_layer = dy.bmax(cnn_layer, cnn_layer_alt)
       elif self.nonlinearity is not None:
         raise RuntimeError("unknown nonlinearity: %s" % self.nonlinearity)
+      
+      if self.residual:
+        cnn_layer = cnn_layer + ConvStride(self.chn_dim, 
+                                           stride=self.get_stride_for_layer(layer_i), 
+                                           margin=(self.filter_size_time//2,self.filter_size_freq//2))(cnn_layer_prev)
     mask_out = None if es.mask is None else es.mask.lin_subsampled(trg_len=cnn_layer.dim()[0][0])
     if self.output_tensor:
       return ExpressionSequence(expr_tensor=cnn_layer, mask=mask_out)
@@ -278,3 +285,14 @@ class PoolingConvEncBuilder(object):
       cnn_out = dy.reshape(cnn_layer, (cnn_layer.dim()[0][0], cnn_layer.dim()[0][1]*cnn_layer.dim()[0][2]), batch_size=batch_size)
       es_list = [cnn_out[i] for i in range(cnn_out.dim()[0][0])]
       return ExpressionSequence(list_expr=es_list, mask=mask_out)
+
+class ConvStride(object):
+  def __init__(self, chn_dim, stride=(1,1), margin=(0,0)):
+    self.chn_dim = chn_dim
+    self.stride = stride
+    self.margin = margin
+  def __call__(self, expr):
+    return dy.strided_select(expr, [self.margin[0], expr.dim()[0][0]-2*self.margin[0], self.stride[0],
+                                    self.margin[1], expr.dim()[0][1]-2*self.margin[1], self.stride[1],
+                                    0,              expr.dim()[0][2],                  1,
+                                    0,              expr.dim()[1],                     1])
