@@ -8,7 +8,7 @@ from xnmt.hier_model import HierarchicalModel, recursive
 from xnmt.serializer import Serializable
 from xnmt.expression_sequence import ExpressionSequence
 from xnmt.encoder_state import FinalEncoderState
-
+from xnmt.nn import ResidualConnection
 # The LSTM model builders
 import xnmt.pyramidal
 import xnmt.residual
@@ -141,18 +141,25 @@ class StridedConvEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!StridedConvEncoder'
   def __init__(self, context, input_dim, layers=1, chn_dim=3, num_filters=32, 
                output_tensor=False, batch_norm=True, stride=(2,2), nonlinearity="relu", 
-               init_gauss_var=0.1, transpose=True, weight_noise=None, residual=False):
-    model = context.dynet_param_collection.param_col
-    self.weight_noise = weight_noise  or context.weight_noise
-    self.builder = xnmt.conv_encoder.StridedConvEncBuilder(layers, input_dim, model, chn_dim, 
-                                            num_filters, output_tensor, batch_norm,
-                                            stride, nonlinearity, init_gauss_var, transpose,
-                                            residual)
+               init_gauss_var=0.1, transpose=True, weight_noise=None):
+    param_col = context.dynet_param_collection.param_col
+    self.builder = xnmt.conv_encoder.StridedConvEncBuilder(layers=layers,
+                                                           input_dim=input_dim,
+                                                           param_col=param_col,
+                                                           chn_dim=chn_dim,
+                                                           num_filters=num_filters, 
+                                                           output_tensor=output_tensor,
+                                                           batch_norm=batch_norm,
+                                                           stride=stride,
+                                                           nonlinearity=nonlinearity,
+                                                           init_gauss_var=init_gauss_var,
+                                                           transpose=transpose,
+                                                           weight_noise=weight_noise or context.weight_noise
+                                                           )
+    
   @recursive
   def set_train(self, val):
     self.builder.train = val
-    if self.weight_noise > 0.0:
-      self.builder.set_weight_noise(self.weight_noise if val else 0.0)
 
 class PoolingConvEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!PoolingConvEncoder'
@@ -186,6 +193,21 @@ class ModularEncoder(Encoder, Serializable):
       final_states += mod.get_final_states()
     return final_states
 
+  @recursive
+  def set_train(self, val):
+    pass
+
+class ResidualEncoder(Encoder, Serializable):
+  yaml_tag = u'!ResidualEncoder'
+  def __init__(self, transforming_encoder, shortcut_operation=None):
+    self.transforming_encoder = transforming_encoder
+    self.residual_conn = ResidualConnection(plain_resizer=shortcut_operation)
+    self.register_hier_child(self.transforming_encoder)
+  def transduce(self, sent):
+    return self.residual_conn(plain=sent, 
+                              transformed=self.transforming_encoder.transduce(sent))
+  def get_final_states(self):
+    return self.transforming_encoder.get_final_states()
   @recursive
   def set_train(self, val):
     pass
