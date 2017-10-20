@@ -1,3 +1,4 @@
+import math
 import dynet as dy
 import numpy as np
 from xnmt.encoder_state import FinalEncoderState, PseudoState
@@ -538,7 +539,7 @@ class NetworkInNetworkBiRNNBuilder(HierarchicalModel):
       projected = ExpressionSequence(expr_list=interleaved, mask=mask)
       for nin_layer in self.nin_layers[layer_i+1]:
         projected = nin_layer(projected)
-      assert len(es)==len(projected)*self.stride
+      assert math.ceil(len(es) / float(self.stride))==len(projected)
       es = projected
     
     return projected

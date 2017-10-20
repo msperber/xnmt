@@ -29,11 +29,11 @@ defaults:
         - !NetworkInNetworkBiLSTMEncoder
           layers: 3
           stride: 2
-          num_projections: 2
+          nin_depth: 2
           input_dim: 240
           batch_norm: True
           hidden_dim: 64
-          projection_enabled: True
+          nin_enabled: True
           nonlinearity: relu
         - !LSTMEncoder
           bidirectional: True
