@@ -115,21 +115,24 @@ class PyramidalLSTMEncoder(BuilderEncoder, Serializable):
 class NetworkInNetworkBiLSTMEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!NetworkInNetworkBiLSTMEncoder'
   
-  def __init__(self, yaml_context, input_dim, layers=1, hidden_dim=None, batch_norm=True, stride=1, nin_depth=1, nin_enabled=True, nonlinearity="relu", dropout=None, pre_activation=False, weight_noise=None, weight_norm=False):
+  def __init__(self, yaml_context, input_dim, layers=1, hidden_dim=None, batch_norm=True, stride=1, 
+               nin_depth=1, nin_enabled=True, nonlinearity="relu", dropout=None, pre_activation=False, 
+               weight_noise=None, weight_norm=False):
     hidden_dim = hidden_dim or yaml_context.default_layer_dim
     self.dropout = dropout or yaml_context.dropout
     self.weight_noise = weight_noise  or yaml_context.weight_noise
-    self.builder = xnmt.lstm.NetworkInNetworkBiRNNBuilder(param_col=yaml_context.dynet_param_collection.param_col, 
+    self.builder = xnmt.lstm.NetworkInNetworkBiRNNBuilder(yaml_context=yaml_context, 
                                                           num_layers=layers,
                                                           input_dim=input_dim,
                                                           hidden_dim=hidden_dim,  
                                                           nin_depth=nin_depth,
                                                           nin_enabled=nin_enabled,
                                                           stride=stride,
-                                                          batch_norm=batch_norm,
+                                                          use_bn=batch_norm,
                                                           nonlinearity=nonlinearity,
                                                           pre_activation=pre_activation, 
                                                           weight_norm=weight_norm)
+    self.register_hier_child(self.builder)
                                                           
   @recursive
   def set_train(self, val):
@@ -214,8 +217,8 @@ class ResidualEncoder(Encoder, Serializable):
     self.residual_conn = ResidualConnection(shortcut_operation=shortcut)
     self.register_hier_child(self.transforming_encoder)
   def transduce(self, sent):
-    return self.residual_conn(plain=sent, 
-                              transformed=self.transforming_encoder.transduce(sent))
+    return self.residual_conn(plain_es=sent, 
+                              transformed_es=self.transforming_encoder.transduce(sent))
   def get_final_states(self):
     return self.transforming_encoder.get_final_states()
   @recursive

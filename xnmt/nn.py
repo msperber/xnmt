@@ -1,5 +1,9 @@
+import numpy as np
 import dynet as dy
+from xnmt.batcher import Mask
 from xnmt.expression_sequence import ExpressionSequence
+from xnmt.batch_norm import BatchNorm
+from xnmt.hier_model import HierarchicalModel, recursive
 
 class WeightNoise(object):
   def __init__(self, std):
@@ -32,70 +36,120 @@ class ResidualConnection(object):
     return ExpressionSequence(expr_tensor=plain_es.as_tensor() + transformed_es.as_tensor(), 
                               mask=plain_es.mask, tensor_transposed=plain_es.tensor_transposed)
 
-class Padder(object):
-  TIME_DIMENSION = -1
-  BATCH_DIMENSION = 2398343
+class TimePadder(object):
+  """
+  Pads ExpressionSequence along time axis.
+  """
   def __init__(self, mode="zero"):
     """
     :param mode: "zero" | "repeat_last"
     """
     self.mode = mode
-  def __call__(self, expr, dim, pad_len):
+  def __call__(self, es, pad_len):
+    """
+    :param es: ExpressionSequence
+    :param pad_len: how much to pad
+    :returns: ExpressionSequence, with padded items indicated as masked
+    """
+    assert not es.tensor_transposed
+    time_dim = len(es.dim()[0])-1
+    single_pad_dim = list(es.dim()[0])
+    single_pad_dim[time_dim] = 1
+    batch_size = es.dim()[1]
     if self.mode=="zero":
-      # TODO: something like
-      zero_pad = dy.inputTensor(np.zeros(es[0].dim()[0]+(es[0].dim()[1],)), batched=True)
-      es.extend([zero_pad] * (stride-len(es)%stride))
+      single_pad = dy.zeros(tuple(single_pad_dim), batch_size=batch_size)
     elif self.mode=="repeat_last":
-      pass # TODO
+      single_pad = es[-1]
+    mask = es.mask
+    if mask is not None:
+      mask_dim = (mask.np_arr.shape[0], pad_len)
+      mask = Mask(np.append(mask.np_arr, np.ones(mask_dim), axis=1))
+    if es.has_list():
+      es_list = es.as_list()
+      es_list.extend([single_pad] * pad_len)
+      return ExpressionSequence(expr_list=es_list, mask=mask)
+    else:
+      raise NotImplementedError("tensor padding not implemented yet")
+      
 
-class NiNLayer(object):
-  def __init__(self, projection=True, batch_norm=True, nonlinearity="relu", stride=1):
-    self.projection = projection
-    self.use_bn = batch_norm
+class NiNLayer(HierarchicalModel):
+  def __init__(self, yaml_context, input_dim, hidden_dim, use_proj=True,
+               use_bn=True, nonlinearity="relu", downsampling_factor=1):
+    self.input_dim = input_dim
+    self.hidden_dim = hidden_dim
+    self.use_proj = use_proj
+    self.use_bn = use_bn
     self.nonlinearity = nonlinearity
-    self.stride = stride
-    self.padder = Padder(mode="zero")
-    if stride < 1: raise ValueError("stride must be >= 1")
-    if not projection and stride > 1: raise ValueError("striding requires projections enabled")
-    if projection:
+    self.downsampling_factor = downsampling_factor
+    self.timePadder = TimePadder(mode="zero")
+    if downsampling_factor < 1: raise ValueError("downsampling_factor must be >= 1")
+    if not use_proj:
+      if hidden_dim!=input_dim*downsampling_factor: raise ValueError("disabling projections requires hidden_dim == input_dim*downsampling_factor") 
+    if use_proj:
+      self.p_proj = yaml_context.dynet_param_collection.param_col.add_parameters(dim=(hidden_dim, input_dim*downsampling_factor))
+    if self.use_bn:
+      self.bn = BatchNorm(yaml_context.dynet_param_collection.param_col, hidden_dim, 2, time_first=False)
       
   def __call__(self, es):
+    """
+    :param es: ExpressionSequence of dimensions input_dim x time
+    :returns: ExpressionSequence
+              if use_proj: dimensions = hidden x ceil(time/downsampling_factor)
+              else:        dimensions = (input_dim*downsampling_factor) x ceil(time/downsampling_factor)
+    """
     assert not es.tensor_transposed
-    expr_list = es.as_list()
-    if self.projection:
-      if len(es) % self.stride!=0:
-        expr_list = self.padder(expr_list, dim=self.padder.TIME_DIMENSION, 
-                                pad_len = self.stride - (len(es) % self.stride))
+    if not es.dim()[0][0] == self.input_dim:
+      assert es.dim()[0][0] == self.input_dim
 
+    if self.use_proj:
+      if len(es) % self.downsampling_factor!=0:
+        es = self.timePadder(es, pad_len = self.downsampling_factor - (len(es) % self.downsampling_factor))
 
-  def apply_one_nin(self, es, bn, stride, lintransf, downsampled_mask=None):
-    batch_size = es[0].dim()[1]
-    if len(es)%stride!=0:
-      
-      # TODO: could pad by replicating last timestep instead
-      zero_pad = dy.inputTensor(np.zeros(es[0].dim()[0]+(es[0].dim()[1],)), batched=True)
-      es.extend([zero_pad] * (stride-len(es)%stride))
+    if es.mask is None: mask_out = None
+    else:
+      if self.downsampling_factor==1:
+        mask_out = es.mask
+      else:
+        mask_out = es.mask.lin_subsampled(self.downsampling_factor)
+
     projections = []
-    lintransf_param = dy.parameter(lintransf)
-    # TODO: could speed this up by putting time steps into the batch dimension and thereby avoiding the for loop
-    for pos in range(0, len(es), stride):
-      concat = dy.concatenate(es[pos:pos+stride])
-      if self.projection_enabled:
-        proj = lintransf_param * concat
+    expr_list = es.as_list()
+    for pos in range(0, len(expr_list), self.downsampling_factor):
+      if self.downsampling_factor > 1:
+        if expr_list[-1].dim()[0][0]!=32:
+          print("break")
+        concat = dy.concatenate(expr_list[pos : pos+self.downsampling_factor])
+      else:
+        # TODO: in case of no downsampling, we could put time into batch dimension and compute all matrix multiplies in parallel
+        concat = expr_list[pos]
+        
+      if self.use_proj:
+        proj = dy.parameter(self.p_proj)
+        proj = proj * concat
       else: proj = concat
       projections.append(proj)
+
     if self.use_bn:
-      bn_layer = bn(dy.concatenate([dy.reshape(x, (1,self.hidden_dim), batch_size=batch_size) for x in projections], 
-                                0), 
-                 train=self.train,
-                 mask=downsampled_mask)
-      nonlin = self.apply_nonlinearity(bn_layer)
-      es = [dy.pick(nonlin, i) for i in range(nonlin.dim()[0][0])]
+      bn_layer = self.bn(dy.concatenate(projections, 1), 
+                         train=self.train,
+                         mask=mask_out)
+      nonlin = self.apply_nonlinearity(bn_layer, self.nonlinearity)
+      return ExpressionSequence(expr_tensor=nonlin, mask=mask_out)
     else:
       es = []
       for proj in projections:
-        nonlin = self.apply_nonlinearity(proj)
+        nonlin = self.apply_nonlinearity(proj, self.nonlinearity)
         es.append(nonlin)
-    return es
-      
-      
+      return ExpressionSequence(expr_list=es, mask=mask_out)
+
+  def apply_nonlinearity(self, expr, nonlinearity):
+    if nonlinearity is None:
+      return expr
+    elif nonlinearity.lower()=="relu":
+      return dy.rectify(expr)
+    else:
+      raise RuntimeError("unknown nonlinearity %s" % nonlinearity)
+  
+  @recursive
+  def set_train(self, val):
+    self.train = val

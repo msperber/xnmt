@@ -9,25 +9,27 @@ class BatchNorm(object):
   def __init__(self, model, hidden_dim, num_dim, time_first=True):
     self.hidden_dim = hidden_dim
     self.num_dim = num_dim
+    self.time_first = time_first
     self.bn_gamma = model.add_parameters(dim=self.get_normalizer_dimensionality(), init=dy.ConstInitializer(1.0))
     self.bn_beta = model.add_parameters(dim=self.get_normalizer_dimensionality(), init=dy.ConstInitializer(0.0))
     self.bn_population_running_mean = np.zeros((hidden_dim, ))
     self.bn_population_running_std = np.ones((hidden_dim, ))
-    self.time_first = time_first
-    if not self.time_first: raise RuntimeError("time_first=False may be broken & needs to be fixed")
+#    if not self.time_first: raise RuntimeError("time_first=False may be broken & needs to be fixed")
     
   def get_normalizer_dimensionality(self):
     if self.num_dim == 1:
       return (self.hidden_dim,)
     elif self.num_dim == 2:
-      return (1, self.hidden_dim,)
+      return (1, self.hidden_dim,) if self.time_first else (self.hidden_dim, 1)
     elif self.num_dim == 3:
+      if not self.time_first: raise ValueError("num_dim==3 requires time_first==True")
       return (1, 1, self.hidden_dim,)
     else:
       raise NotImplementedError("BatchNorm not implemented for num_dim > 3")
     
   def get_stat_dimensions(self):
-    return range(self.num_dim-1)
+    if self.time_first: return range(self.num_dim-1)
+    else: return range(1, self.num_dim)
 
   def __call__(self, input_expr, train, mask=None):
     """

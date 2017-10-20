@@ -3,6 +3,8 @@ import numpy as np
 from xnmt.encoder_state import FinalEncoderState, PseudoState
 from xnmt.expression_sequence import ExpressionSequence, ReversedExpressionSequence
 from xnmt.batch_norm import BatchNorm
+from xnmt.hier_model import HierarchicalModel, recursive
+from xnmt.nn import NiNLayer
 
 class LSTMState(object):
   def __init__(self, builder, h_t=None, c_t=None, state_idx=-1, prev_state=None):
@@ -401,28 +403,27 @@ class ConvLSTMBuilder(object):
     else:
       ret = dy.concatenate(ret_expr)
     return ret
-    
 
-class NetworkInNetworkBiRNNBuilder(object):
+class NetworkInNetworkBiRNNBuilder(HierarchicalModel):
   """
   Builder for NiN-interleaved RNNs that delegates to regular RNNs and wires them together.
   See http://iamaaditya.github.io/2016/03/one-by-one-convolution/
   and https://arxiv.org/pdf/1610.03022.pdf
   """
-  def __init__(self, param_col, 
+  def __init__(self, yaml_context, 
                num_layers, input_dim, hidden_dim,  
                nin_enabled=True, nin_depth=1, stride=1,
-               batch_norm=False, nonlinearity="relu", pre_activation=False, 
+               use_bn=False, nonlinearity="relu", pre_activation=False, 
                weight_norm=False):
     """
-    :param param_col: DyNet parameter collection
+    :param yaml_context:
     :param num_layers: depth of the network
     :param input_dim: size of the inputs of bottom layer
     :param hidden_dim: size of the outputs (and intermediate layer representations)
     :param nin_enabled: whether to apply NiN units (projections (= 1x1 convolutions) + nonlinearity + batch norm units)
     :param nin_depth: number of NiN units (downsampling only performed for first projection)
     :param stride: in (first) projection layer, concatenate n frames and thus use the projection for downsampling
-    :param batch_norm: uses batch norm between projection and non-linearity
+    :param use_bn: uses batch norm between projection and non-linearity
     :param nonlinearity: "rely" or None
     :param pre_activation: True: BN -> relu -> LSTM -> [NiN -> ...] -> proj
                            False: LSTM -> [NiN -> ...]
@@ -433,121 +434,110 @@ class NetworkInNetworkBiRNNBuilder(object):
     self.builder_layers = []
     self.hidden_dim = hidden_dim
     self.stride=stride
-    self.num_projections = nin_depth
-    self.projection_enabled = nin_enabled
+    self.nin_depth = nin_depth
+    self.nin_enabled = nin_enabled
     self.nonlinearity = nonlinearity
-    f = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, param_col, weight_norm=weight_norm)
-    b = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, param_col, weight_norm=weight_norm)
-    self.use_bn = batch_norm
-    bn = BatchNorm(param_col, hidden_dim, 2)
-    self.builder_layers.append((f, b, bn))
+    self.pre_activation = pre_activation
+    f = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, yaml_context.dynet_param_collection.param_col, 
+                                 weight_norm=weight_norm)
+    b = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, yaml_context.dynet_param_collection.param_col, 
+                                 weight_norm=weight_norm)
+    self.builder_layers.append((f, b))
     for _ in xrange(num_layers - 1):
-      f = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, param_col, weight_norm=weight_norm)
-      b = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, param_col, weight_norm=weight_norm)
-      bn = BatchNorm(param_col, hidden_dim, 2) if batch_norm else None
-      self.builder_layers.append((f, b, bn))
-    self.lintransf_layers = []
-    for _ in xrange(num_layers):
-      proj_params = []
-      for proj_i in range(nin_depth):
-        if proj_i==0:
-          proj_param = param_col.add_parameters(dim=(hidden_dim, hidden_dim*stride))
-        else:
-          proj_param = param_col.add_parameters(dim=(hidden_dim, hidden_dim))
-        proj_params.append(proj_param)
-      self.lintransf_layers.append(proj_params)
-    self.train = True
-
-  def whoami(self): return "NetworkInNetworkBiRNNBuilder"
+      f = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, yaml_context.dynet_param_collection.param_col, 
+                                   weight_norm=weight_norm)
+      b = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, yaml_context.dynet_param_collection.param_col, 
+                                   weight_norm=weight_norm)
+      self.builder_layers.append((f, b))
+    
+    self.nin_layers = []
+    if not nin_enabled:
+      assert self.stride == 1
+      self.nin_layers.append([]) # no pre-activation
+      for _ in xrange(num_layers):
+        self.nin_layers.append([NiNLayer(yaml_context, input_dim=hidden_dim/2, hidden_dim=hidden_dim,
+                                         use_bn=False, nonlinearity=None, use_proj=False, 
+                                         downsampling_factor=2)])
+    else:
+      if pre_activation:
+        # first pre-activation
+        self.nin_layers.append([NiNLayer(yaml_context, input_dim=input_dim, hidden_dim=input_dim,
+                                         use_proj=False, use_bn=use_bn, nonlinearity=nonlinearity)])
+        for _ in xrange(num_layers-1):
+          nin_layer = []
+          for nin_i in xrange(nin_depth):
+            nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
+                                      use_bn=use_bn, nonlinearity=self.nonlinearity, 
+                                      downsampling_factor=2*self.stride if nin_i==0 else 1))
+          self.nin_layers.append(nin_layer)
+        nin_layer = []
+        for nin_i in xrange(nin_depth-1):
+          nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
+                                    use_bn=use_bn, nonlinearity=self.nonlinearity, 
+                                    downsampling_factor=2*self.stride if nin_i==0 else 1))
+        # very last layer: counterpiece to the first pre-activation
+        nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_depth==1 else hidden_dim, hidden_dim=hidden_dim, 
+                                  use_proj=True, use_bn=False, nonlinearity=None))
+        self.nin_layers.append(nin_layer)
+      else:
+        self.nin_layers.append([]) # no pre-activation
+        for _ in xrange(num_layers):
+          nin_layer = []
+          for nin_i in xrange(nin_depth):
+            nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
+                                      use_bn=use_bn, nonlinearity=self.nonlinearity, 
+                                      downsampling_factor=2*self.stride if nin_i==0 else 1))
+          self.nin_layers.append(nin_layer)
+    for l in self.nin_layers:
+      for nin in l:
+        self.register_hier_child(nin)
+        
+  @recursive
+  def set_train(self, val):
+    pass
 
   def set_dropout(self, p):
-    for (fb, bb, bn) in self.builder_layers:
+    for (fb, bb) in self.builder_layers:
       fb.set_dropout(p)
       bb.set_dropout(p)
   def disable_dropout(self):
-    for (fb, bb, bn) in self.builder_layers:
+    for (fb, bb) in self.builder_layers:
       fb.disable_dropout()
       bb.disable_dropout()
   def set_weight_noise(self, p):
-    for (fb, bb, bn) in self.builder_layers:
+    for (fb, bb) in self.builder_layers:
       fb.set_weight_noise(p)
       bb.set_weight_noise(p)
   def disable_weight_noise(self):
-    for (fb, bb, bn) in self.builder_layers:
+    for (fb, bb) in self.builder_layers:
       fb.disable_weight_noise()
       bb.disable_weight_noise()
 
   def transduce(self, es):
     """
-    returns the list of output Expressions obtained by adding the given inputs
-    to the current state, one by one, to both the forward and backward RNNs, 
-    and concatenating.
-        
-    :param es: a list of Expression
+    :param es: ExpressionSequence
 
     """
-    for layer_i, (fb, bb, bn) in enumerate(self.builder_layers):
+    
+    for nin_layer in self.nin_layers[0]:
+      es = nin_layer(es)
+      
+    for layer_i, (fb, bb) in enumerate(self.builder_layers):
       fs = fb.initial_state().transduce(es)
       bs = bb.initial_state().transduce(ReversedExpressionSequence(es))
       interleaved = []
 
-      if es.mask is None: mask_out = None
+      if es.mask is None: mask = None
       else:
-        mask_out = es.mask.lin_subsampled(self.stride)
+        mask = es.mask.lin_subsampled(0.5) # upsample the mask to encompass interleaved fwd / bwd expressions
 
       for pos in range(len(fs)):
         interleaved.append(fs[pos])
         interleaved.append(bs[-pos-1])
-      projected = self.apply_nin_projections(self.lintransf_layers[layer_i], interleaved, bn, stride=self.stride*2, downsampled_mask=mask_out)
-      if es.mask is not None:
-        projected_masked = []
-        for i in range(len(projected)):
-          if i==0 or np.count_nonzero(es.mask.np_arr[:,i:i+1]) == 0: # only mask if we can and have to
-            projected_masked.append(projected[i])
-          else:
-            projected_masked.append(es.mask.cmult_by_timestep_expr(projected[i], i, True) + es.mask.cmult_by_timestep_expr(projected_masked[i-1], i, False))
-        projected = projected_masked
-      es = ExpressionSequence(expr_list = projected,
-                              mask = mask_out)
-    return es
-  def apply_nin_projections(self, lintransf_params, es, bn, stride, downsampled_mask=None):
-    for proj_i in range(len(lintransf_params)):
-      es = self.apply_one_nin(es, bn, stride if proj_i==0 else 1, lintransf_params[proj_i], downsampled_mask)
-    return es
-  def apply_one_nin(self, es, bn, stride, lintransf, downsampled_mask=None):
-    batch_size = es[0].dim()[1]
-    if len(es)%stride!=0:
-      # TODO: could pad by replicating last timestep instead
-      zero_pad = dy.inputTensor(np.zeros(es[0].dim()[0]+(es[0].dim()[1],)), batched=True)
-      es.extend([zero_pad] * (stride-len(es)%stride))
-    projections = []
-    lintransf_param = dy.parameter(lintransf)
-    # TODO: could speed this up by putting time steps into the batch dimension and thereby avoiding the for loop
-    for pos in range(0, len(es), stride):
-      concat = dy.concatenate(es[pos:pos+stride])
-      if self.projection_enabled:
-        proj = lintransf_param * concat
-      else: proj = concat
-      projections.append(proj)
-    if self.use_bn:
-      bn_layer = bn(dy.concatenate([dy.reshape(x, (1,self.hidden_dim), batch_size=batch_size) for x in projections], 
-                                0), 
-                 train=self.train,
-                 mask=downsampled_mask)
-      nonlin = self.apply_nonlinearity(bn_layer)
-      es = [dy.pick(nonlin, i) for i in range(nonlin.dim()[0][0])]
-    else:
-      es = []
-      for proj in projections:
-        nonlin = self.apply_nonlinearity(proj)
-        es.append(nonlin)
-    return es
-  def apply_nonlinearity(self, expr):
-    if self.nonlinearity is None:
-      return expr
-    elif self.nonlinearity.lower()=="relu":
-      return dy.rectify(expr)
-    else:
-      raise RuntimeError("unknown nonlinearity %s" % self.nonlinearity)
-  def initial_state(self):
-    return PseudoState(self)
+      
+      projected = ExpressionSequence(expr_list=interleaved, mask=mask)
+      for nin_layer in self.nin_layers[layer_i+1]:
+        projected = nin_layer(projected)
+      es = projected
+      
+    return projected

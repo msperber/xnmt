@@ -22,11 +22,12 @@ class Mask(object):
   belonging to the sequence set to 0, and parts that should be masked set to 1
   """
   def __init__(self, np_arr):
+    assert len(np_arr.shape)==2
     self.np_arr = np_arr
   
   def __len__(self):
     return self.np_arr.shape[1]
-  
+ 
   def batch_size(self):
     return self.np_arr.shape[0]
 
