@@ -109,11 +109,11 @@ class XnmtTrainer(object):
       self.create_corpus_and_model()
 
     if self.args.batcher is None:
-      self.batcher = SrcBatcher(32)
+      self.batcher = xnmt.batcher.SrcBatcher(32)
     else:
       self.batcher = self.model_serializer.initialize_object(self.args.batcher) if self.need_deserialization else self.args.batcher
     if args.src_format == "contvec":
-      self.batcher.pad_token = None # np.zeros(self.model.src_embedder.emb_dim)
+      self.batcher.src_pad_token = None # np.zeros(self.model.src_embedder.emb_dim)
     self.pack_batches()
     self.logger = BatchLossTracker(args.dev_every, self.total_train_sent)
 
