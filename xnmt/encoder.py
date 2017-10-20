@@ -62,11 +62,11 @@ class IdentityEncoder(Encoder, Serializable):
 class LSTMEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!LSTMEncoder'
 
-  def __init__(self, context, input_dim=None, layers=1, hidden_dim=None, dropout=None, bidirectional=True, weight_norm=False):
-    model = context.dynet_param_collection.param_col
-    input_dim = input_dim or context.default_layer_dim
-    hidden_dim = hidden_dim or context.default_layer_dim
-    dropout = dropout or context.dropout
+  def __init__(self, yaml_context, input_dim=None, layers=1, hidden_dim=None, dropout=None, bidirectional=True, weight_norm=False):
+    model = yaml_context.dynet_param_collection.param_col
+    input_dim = input_dim or yaml_context.default_layer_dim
+    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    dropout = dropout or yaml_context.dropout
     self.input_dim = input_dim
     self.layers = layers
     self.hidden_dim = hidden_dim
@@ -83,10 +83,10 @@ class LSTMEncoder(BuilderEncoder, Serializable):
 class ResidualLSTMEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!ResidualLSTMEncoder'
 
-  def __init__(self, context, input_dim=512, layers=1, hidden_dim=None, residual_to_output=False, dropout=None, bidirectional=True):
-    model = context.dynet_param_collection.param_col
-    hidden_dim = hidden_dim or context.default_layer_dim
-    dropout = dropout or context.dropout
+  def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=None, residual_to_output=False, dropout=None, bidirectional=True):
+    model = yaml_context.dynet_param_collection.param_col
+    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    dropout = dropout or yaml_context.dropout
     self.dropout = dropout
     if bidirectional:
       self.builder = xnmt.residual.ResidualBiRNNBuilder(layers, input_dim, hidden_dim, model, residual_to_output)
@@ -100,12 +100,12 @@ class ResidualLSTMEncoder(BuilderEncoder, Serializable):
 class PyramidalLSTMEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!PyramidalLSTMEncoder'
 
-  def __init__(self, context, input_dim=512, layers=1, hidden_dim=None, downsampling_method="skip", reduce_factor=2, dropout=None):
-    hidden_dim = hidden_dim or context.default_layer_dim
-    dropout = dropout or context.dropout
+  def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=None, downsampling_method="skip", reduce_factor=2, dropout=None):
+    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    dropout = dropout or yaml_context.dropout
     self.dropout = dropout
     self.builder = xnmt.pyramidal.PyramidalRNNBuilder(layers, input_dim, hidden_dim,
-                                                 context.dynet_param_collection.param_col,
+                                                 yaml_context.dynet_param_collection.param_col,
                                                  downsampling_method, reduce_factor)
 
   @recursive
@@ -115,11 +115,11 @@ class PyramidalLSTMEncoder(BuilderEncoder, Serializable):
 class NetworkInNetworkBiLSTMEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!NetworkInNetworkBiLSTMEncoder'
   
-  def __init__(self, context, input_dim, layers=1, hidden_dim=None, batch_norm=True, stride=1, nin_depth=1, nin_enabled=True, nonlinearity="relu", dropout=None, pre_activation=False, weight_noise=None, weight_norm=False):
-    hidden_dim = hidden_dim or context.default_layer_dim
-    self.dropout = dropout or context.dropout
-    self.weight_noise = weight_noise  or context.weight_noise
-    self.builder = xnmt.lstm.NetworkInNetworkBiRNNBuilder(param_col=context.dynet_param_collection.param_col, 
+  def __init__(self, yaml_context, input_dim, layers=1, hidden_dim=None, batch_norm=True, stride=1, nin_depth=1, nin_enabled=True, nonlinearity="relu", dropout=None, pre_activation=False, weight_noise=None, weight_norm=False):
+    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    self.dropout = dropout or yaml_context.dropout
+    self.weight_noise = weight_noise  or yaml_context.weight_noise
+    self.builder = xnmt.lstm.NetworkInNetworkBiRNNBuilder(param_col=yaml_context.dynet_param_collection.param_col, 
                                                           num_layers=layers,
                                                           input_dim=input_dim,
                                                           hidden_dim=hidden_dim,  
@@ -139,8 +139,8 @@ class NetworkInNetworkBiLSTMEncoder(BuilderEncoder, Serializable):
 
 class ResConvLstmEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!ResConvLstmEncoder'
-  def __init__(self, context, input_dim, num_filters=32, ):
-    model = context.dynet_param_collection.param_col
+  def __init__(self, yaml_context, input_dim, num_filters=32, ):
+    model = yaml_context.dynet_param_collection.param_col
     self.builder = xnmt.lstm.ResConvLSTMBuilder(input_dim, model, num_filters)
   @recursive
   def set_train(self, val):
@@ -148,10 +148,10 @@ class ResConvLstmEncoder(BuilderEncoder, Serializable):
 
 class StridedConvEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!StridedConvEncoder'
-  def __init__(self, context, input_dim, layers=1, chn_dim=3, num_filters=32, 
+  def __init__(self, yaml_context, input_dim, layers=1, chn_dim=3, num_filters=32, 
                output_tensor=False, batch_norm=True, stride=(2,2), nonlinearity="relu", 
                init_gauss_var=0.1, transpose=True, weight_noise=None, pre_activation=False):
-    param_col = context.dynet_param_collection.param_col
+    param_col = yaml_context.dynet_param_collection.param_col
     self.builder = xnmt.conv_encoder.StridedConvEncBuilder(layers=layers,
                                                            input_dim=input_dim,
                                                            param_col=param_col,
@@ -163,7 +163,7 @@ class StridedConvEncoder(BuilderEncoder, Serializable):
                                                            nonlinearity=nonlinearity,
                                                            init_gauss_var=init_gauss_var,
                                                            transpose=transpose,
-                                                           weight_noise=weight_noise or context.weight_noise,
+                                                           weight_noise=weight_noise or yaml_context.weight_noise,
                                                            pre_activation=pre_activation
                                                            )
     
@@ -173,9 +173,9 @@ class StridedConvEncoder(BuilderEncoder, Serializable):
 
 class PoolingConvEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!PoolingConvEncoder'
-  def __init__(self, context, input_dim, pooling=[None, (1,1)], chn_dim=3, num_filters=32, 
+  def __init__(self, yaml_context, input_dim, pooling=[None, (1,1)], chn_dim=3, num_filters=32, 
                output_tensor=False, nonlinearity="relu", init_gauss_var=0.1):
-    model = context.dynet_param_collection.param_col
+    model = yaml_context.dynet_param_collection.param_col
     self.builder = xnmt.conv_encoder.PoolingConvEncBuilder(input_dim, model, pooling, chn_dim, num_filters, output_tensor, nonlinearity, init_gauss_var)
 
 
@@ -224,12 +224,12 @@ class ResidualEncoder(Encoder, Serializable):
 
 class FullyConnectedEncoder(Encoder, Serializable):
   yaml_tag = u'!FullyConnectedEncoder'
-  def __init__(self, context, in_height, out_height, nonlinearity='linear'):
+  def __init__(self, yaml_context, in_height, out_height, nonlinearity='linear'):
     """
       :param in_height, out_height: input and output dimension of the affine transform
       :param nonlinearity: nonlinear activation function
     """
-    model = context.dynet_param_collection.param_col
+    model = yaml_context.dynet_param_collection.param_col
     self.in_height = in_height
     self.out_height = out_height
     self.nonlinearity = nonlinearity
@@ -272,7 +272,7 @@ class ConvConnectedEncoder(Encoder, Serializable):
     Embedding sequence has same length as Input sequence
     """
 
-  def __init__(self, context, input_dim, window_receptor,output_dim,num_layers,internal_dim,non_linearity='linear'):
+  def __init__(self, yaml_context, input_dim, window_receptor,output_dim,num_layers,internal_dim,non_linearity='linear'):
     """
       :param num_layers: num layers after first receptor conv
       :param input_dim: size of the inputs
@@ -282,7 +282,7 @@ class ConvConnectedEncoder(Encoder, Serializable):
       :param non_linearity: Non linearity to apply between layers
       """
 
-    model = context.dynet_param_collection.param_col
+    model = yaml_context.dynet_param_collection.param_col
     self.input_dim = input_dim
     self.window_receptor = window_receptor
     self.internal_dim = internal_dim
@@ -362,27 +362,6 @@ class ConvConnectedEncoder(Encoder, Serializable):
 
   def initial_state(self):
     return PseudoState(self)
-
-if __name__ == '__main__':
-  # To use this code, comment out the model initialization in the class and the line for src.as_tensor()
-  dy.renew_cg()
-  model = dy.ParameterCollection()
-  l1 = FullyConnectedEncoder(2, 1, 'sigmoid')
-  a = dy.inputTensor([1, 2])
-  b = l1.transduce(a)
-  print(b[0].npvalue())
-
-  l2 = FullyConnectedEncoder(2, 1, 'tanh')
-  c = l2.transduce(a)
-  print(c[0].npvalue())
-
-  l3 = FullyConnectedEncoder(2, 1, 'linear')
-  d = l3.transduce(a)
-  print(d[0].npvalue())
-
-  l4 = FullyConnectedEncoder(2, 1, 'relu')
-  e = l4.transduce(a)
-  print(e[0].npvalue())
 
 
 
