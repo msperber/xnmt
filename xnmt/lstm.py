@@ -538,7 +538,7 @@ class NetworkInNetworkBiRNNBuilder(HierarchicalModel):
       projected = ExpressionSequence(expr_list=interleaved, mask=mask)
       for nin_layer in self.nin_layers[layer_i+1]:
         projected = nin_layer(projected)
-      assert len(es)*self.stride==len(projected)
+      assert len(es)==len(projected)*self.stride
       es = projected
     
     return projected
