@@ -116,8 +116,6 @@ class NiNLayer(HierarchicalModel):
     expr_list = es.as_list()
     for pos in range(0, len(expr_list), self.downsampling_factor):
       if self.downsampling_factor > 1:
-        if expr_list[-1].dim()[0][0]!=32:
-          print("break")
         concat = dy.concatenate(expr_list[pos : pos+self.downsampling_factor])
       else:
         # TODO: in case of no downsampling, we could put time into batch dimension and compute all matrix multiplies in parallel
