@@ -477,7 +477,8 @@ class NetworkInNetworkBiRNNBuilder(HierarchicalModel):
                                     downsampling_factor=2*self.stride if nin_i==0 else 1))
         # very last layer: counterpiece to the first pre-activation
         nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_depth==1 else hidden_dim, hidden_dim=hidden_dim, 
-                                  use_proj=True, use_bn=False, nonlinearity=None))
+                                  use_proj=True, use_bn=False, nonlinearity=None,
+                                  downsampling_factor=2*self.stride if nin_depth==1 else 1))
         self.nin_layers.append(nin_layer)
       else:
         self.nin_layers.append([]) # no pre-activation
@@ -518,7 +519,6 @@ class NetworkInNetworkBiRNNBuilder(HierarchicalModel):
     :param es: ExpressionSequence
 
     """
-    
     for nin_layer in self.nin_layers[0]:
       es = nin_layer(es)
       
@@ -538,6 +538,7 @@ class NetworkInNetworkBiRNNBuilder(HierarchicalModel):
       projected = ExpressionSequence(expr_list=interleaved, mask=mask)
       for nin_layer in self.nin_layers[layer_i+1]:
         projected = nin_layer(projected)
+      assert len(es)*self.stride==len(projected)
       es = projected
-      
+    
     return projected

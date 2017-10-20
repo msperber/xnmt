@@ -33,6 +33,8 @@ class ResidualConnection(object):
   def __call__(self, plain_es, transformed_es):
     if self.shortcut_operation:
       plain_es = self.shortcut_operation(plain_es)
+    if plain_es.dim() != transformed_es.dim():
+      raise ValueError("residual connections need matching shortcut / output dimensions, got: %s and %s" % (plain_es.dim(), transformed_es.dim()))
     return ExpressionSequence(expr_tensor=plain_es.as_tensor() + transformed_es.as_tensor(), 
                               mask=plain_es.mask, tensor_transposed=plain_es.tensor_transposed)
 
@@ -99,7 +101,7 @@ class NiNLayer(HierarchicalModel):
     """
     assert not es.tensor_transposed
     if not es.dim()[0][0] == self.input_dim:
-      assert es.dim()[0][0] == self.input_dim
+      raise ValueError("This NiN Layer requires inputs of hidden dim %s, got %s." % (self.input_dim, es.dim()[0][0]))
 
     if self.use_proj:
       if len(es) % self.downsampling_factor!=0:

@@ -31,7 +31,8 @@ class StridedConvEncBuilder(object):
                                      False -> output is a expression sequence holding a list of flat vector expressions (frequency and channel dimensions are merged)
     """
     assert layers > 0
-    assert input_dim % chn_dim == 0
+    if input_dim % chn_dim != 0:
+      raise ValueError("StridedConvEncoder requires input_dim mod chn_dim == 0, got: %s and %s" % (input_dim, chn_dim))
     
     self.layers = layers
     self.chn_dim = chn_dim
