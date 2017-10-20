@@ -37,6 +37,7 @@ class Encoder(HierarchicalModel):
 class BuilderEncoder(Encoder):
   def __init__(self):
     self._final_states = None
+  def __call__(self, sent): return self.transduce(sent)
   def transduce(self, sent):
     output = self.builder.transduce(sent)
     if not isinstance(output, ExpressionSequence):
@@ -114,14 +115,22 @@ class PyramidalLSTMEncoder(BuilderEncoder, Serializable):
 class NetworkInNetworkBiLSTMEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!NetworkInNetworkBiLSTMEncoder'
   
-  def __init__(self, context, input_dim, layers=1, hidden_dim=None, batch_norm=True, stride=1, num_projections=1, projection_enabled=True, nonlinearity="relu", dropout=None, weight_noise=None, weight_norm=False):
+  def __init__(self, context, input_dim, layers=1, hidden_dim=None, batch_norm=True, stride=1, nin_depth=1, nin_enabled=True, nonlinearity="relu", dropout=None, pre_activation=False, weight_noise=None, weight_norm=False):
     hidden_dim = hidden_dim or context.default_layer_dim
     self.dropout = dropout or context.dropout
     self.weight_noise = weight_noise  or context.weight_noise
-    model = context.dynet_param_collection.param_col
-    self.builder = xnmt.lstm.NetworkInNetworkBiRNNBuilder(layers, input_dim, hidden_dim, model, 
-                                            batch_norm, stride, num_projections, 
-                                            projection_enabled, nonlinearity, weight_norm=weight_norm)
+    self.builder = xnmt.lstm.NetworkInNetworkBiRNNBuilder(param_col=context.dynet_param_collection.param_col, 
+                                                          num_layers=layers,
+                                                          input_dim=input_dim,
+                                                          hidden_dim=hidden_dim,  
+                                                          nin_depth=nin_depth,
+                                                          nin_enabled=nin_enabled,
+                                                          stride=stride,
+                                                          batch_norm=batch_norm,
+                                                          nonlinearity=nonlinearity,
+                                                          pre_activation=pre_activation, 
+                                                          weight_norm=weight_norm)
+                                                          
   @recursive
   def set_train(self, val):
     self.builder.set_dropout(self.dropout if val else 0.0)
@@ -141,7 +150,7 @@ class StridedConvEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!StridedConvEncoder'
   def __init__(self, context, input_dim, layers=1, chn_dim=3, num_filters=32, 
                output_tensor=False, batch_norm=True, stride=(2,2), nonlinearity="relu", 
-               init_gauss_var=0.1, transpose=True, weight_noise=None):
+               init_gauss_var=0.1, transpose=True, weight_noise=None, pre_activation=False):
     param_col = context.dynet_param_collection.param_col
     self.builder = xnmt.conv_encoder.StridedConvEncBuilder(layers=layers,
                                                            input_dim=input_dim,
@@ -154,7 +163,8 @@ class StridedConvEncoder(BuilderEncoder, Serializable):
                                                            nonlinearity=nonlinearity,
                                                            init_gauss_var=init_gauss_var,
                                                            transpose=transpose,
-                                                           weight_noise=weight_noise or context.weight_noise
+                                                           weight_noise=weight_noise or context.weight_noise,
+                                                           pre_activation=pre_activation
                                                            )
     
   @recursive
@@ -199,9 +209,9 @@ class ModularEncoder(Encoder, Serializable):
 
 class ResidualEncoder(Encoder, Serializable):
   yaml_tag = u'!ResidualEncoder'
-  def __init__(self, transforming_encoder, shortcut_operation=None):
-    self.transforming_encoder = transforming_encoder
-    self.residual_conn = ResidualConnection(plain_resizer=shortcut_operation)
+  def __init__(self, transform, shortcut=None):
+    self.transforming_encoder = transform
+    self.residual_conn = ResidualConnection(shortcut_operation=shortcut)
     self.register_hier_child(self.transforming_encoder)
   def transduce(self, sent):
     return self.residual_conn(plain=sent, 

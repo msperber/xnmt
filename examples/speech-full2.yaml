@@ -28,18 +28,41 @@ defaults:
       encoder: !ModularEncoder
         modules:
         - !StridedConvEncoder
-          layers: 2
-          output_tensor: False
+          layers: 1
+          output_tensor: True
           input_dim: 120
           chn_dim: 3
           num_filters: 32
-          batch_norm: True
+          batch_norm: False
           stride:
           - !!python/tuple [2,2]
-          - !!python/tuple [2,2]
-          nonlinearity: relu
+          nonlinearity: ~
           init_gauss_var: 0.0001
-#          residual: True
+        - !ResidualEncoder
+          transform: !StridedConvEncoder
+            layers: 1
+            output_tensor: False
+            input_dim: 608
+            chn_dim: 32
+            num_filters: 32
+            stride:
+            - !!python/tuple [2,2]
+            pre_activation: True
+            batch_norm: True
+            nonlinearity: relu
+            init_gauss_var: 0.0001
+          shortcut:
+            !StridedConvEncoder
+            layers: 1
+            output_tensor: False
+            input_dim: 608
+            chn_dim: 32
+            num_filters: 32
+            batch_norm: False
+            stride:
+            - !!python/tuple [2,2]
+            nonlinearity: ~
+            init_gauss_var: 0.0001
         - !NetworkInNetworkBiLSTMEncoder
           layers: 1
           stride: 1

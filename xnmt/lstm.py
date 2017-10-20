@@ -409,45 +409,51 @@ class NetworkInNetworkBiRNNBuilder(object):
   See http://iamaaditya.github.io/2016/03/one-by-one-convolution/
   and https://arxiv.org/pdf/1610.03022.pdf
   """
-  def __init__(self, num_layers, input_dim, hidden_dim, model, batch_norm=False, stride=1,
-               num_projections=1, projection_enabled=True, nonlinearity="relu", weight_norm=False):
+  def __init__(self, param_col, 
+               num_layers, input_dim, hidden_dim,  
+               nin_enabled=True, nin_depth=1, stride=1,
+               batch_norm=False, nonlinearity="relu", pre_activation=False, 
+               weight_norm=False):
     """
+    :param param_col: DyNet parameter collection
     :param num_layers: depth of the network
-    :param input_dim: size of the inputs
+    :param input_dim: size of the inputs of bottom layer
     :param hidden_dim: size of the outputs (and intermediate layer representations)
-    :param model
-    :param rnn_builder_factory: RNNBuilder subclass, e.g. VanillaLSTMBuilder
+    :param nin_enabled: whether to apply NiN units (projections (= 1x1 convolutions) + nonlinearity + batch norm units)
+    :param nin_depth: number of NiN units (downsampling only performed for first projection)
+    :param stride: in (first) projection layer, concatenate n frames and thus use the projection for downsampling
     :param batch_norm: uses batch norm between projection and non-linearity
-    :param stride: in (first) projection layer, concatenate n frames and use the projection for subsampling
-    :param num_projections: number of projections (only the first projection does any subsampling)
+    :param nonlinearity: "rely" or None
+    :param pre_activation: True: BN -> relu -> LSTM -> [NiN -> ...] -> proj
+                           False: LSTM -> [NiN -> ...]
     """
     assert num_layers > 0
     assert hidden_dim % 2 == 0
-    assert num_projections > 0
+    assert nin_depth > 0
     self.builder_layers = []
     self.hidden_dim = hidden_dim
     self.stride=stride
-    self.num_projections = num_projections
-    self.projection_enabled = projection_enabled
+    self.num_projections = nin_depth
+    self.projection_enabled = nin_enabled
     self.nonlinearity = nonlinearity
-    f = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, model, weight_norm=weight_norm)
-    b = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, model, weight_norm=weight_norm)
+    f = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, param_col, weight_norm=weight_norm)
+    b = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, param_col, weight_norm=weight_norm)
     self.use_bn = batch_norm
-    bn = BatchNorm(model, hidden_dim, 2)
+    bn = BatchNorm(param_col, hidden_dim, 2)
     self.builder_layers.append((f, b, bn))
     for _ in xrange(num_layers - 1):
-      f = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, model, weight_norm=weight_norm)
-      b = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, model, weight_norm=weight_norm)
-      bn = BatchNorm(model, hidden_dim, 2) if batch_norm else None
+      f = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, param_col, weight_norm=weight_norm)
+      b = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, param_col, weight_norm=weight_norm)
+      bn = BatchNorm(param_col, hidden_dim, 2) if batch_norm else None
       self.builder_layers.append((f, b, bn))
     self.lintransf_layers = []
     for _ in xrange(num_layers):
       proj_params = []
-      for proj_i in range(num_projections):
+      for proj_i in range(nin_depth):
         if proj_i==0:
-          proj_param = model.add_parameters(dim=(hidden_dim, hidden_dim*stride))
+          proj_param = param_col.add_parameters(dim=(hidden_dim, hidden_dim*stride))
         else:
-          proj_param = model.add_parameters(dim=(hidden_dim, hidden_dim))
+          proj_param = param_col.add_parameters(dim=(hidden_dim, hidden_dim))
         proj_params.append(proj_param)
       self.lintransf_layers.append(proj_params)
     self.train = True

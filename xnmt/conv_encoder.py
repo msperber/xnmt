@@ -27,8 +27,8 @@ class StridedConvEncBuilder(object):
     :param batch_norm: apply batch normalization before the nonlinearity. Normalization is performed over batch, time, and frequency dimensions (and not over the channel dimension).
     :param nonlinearity: "rely" / "maxout" / None (note: "maxout" will double number of filter parameters, but leave output dimension unchanged)
     :param pre_activation: If True, please BN + nonlinearity before CNN
-    :param output_tensor: True -> output is a expression sequence holding a 3d-tensor (including channel dimension)
-                          False -> output is a expression sequence holding a list of flat vector expressions (frequency and channel dimensions are merged)
+    :param output_transposed_tensor: True -> output is a expression sequence holding a 3d-tensor (including channel dimension), in transposed form (time is first dimension)
+                                     False -> output is a expression sequence holding a list of flat vector expressions (frequency and channel dimensions are merged)
     """
     assert layers > 0
     assert input_dim % chn_dim == 0
@@ -40,7 +40,7 @@ class StridedConvEncBuilder(object):
     self.filter_size_time = 3
     self.filter_size_freq = 3
     self.stride = stride
-    self.output_tensor = output_tensor
+    self.output_transposed_tensor = output_tensor
     self.nonlinearity = nonlinearity
     self.pre_activation = pre_activation
     
@@ -99,7 +99,6 @@ class StridedConvEncBuilder(object):
       raise RuntimeError("unknown nonlinearity: %s" % nonlinearity)
     return expr
     
-
   def transduce(self, es):
     es_expr = es.as_tensor()
     if not es.tensor_transposed:
@@ -138,8 +137,8 @@ class StridedConvEncBuilder(object):
         cnn_layer = dy.conv2d(cnn_layer, cnn_filter, stride=self.get_stride_for_layer(layer_i), is_valid=True)
       
     mask_out = None if es.mask is None else es.mask.lin_subsampled(trg_len=cnn_layer.dim()[0][0])
-    if self.output_tensor:
-      return ExpressionSequence(expr_tensor=cnn_layer, mask=mask_out)
+    if self.output_transposed_tensor:
+      return ExpressionSequence(expr_tensor=cnn_layer, mask=mask_out, tensor_transposed=True)
     else:
       cnn_out = dy.reshape(cnn_layer, (cnn_layer.dim()[0][0], cnn_layer.dim()[0][1]*cnn_layer.dim()[0][2]), batch_size=batch_size)
       es_list = [cnn_out[i] for i in range(cnn_out.dim()[0][0])]
