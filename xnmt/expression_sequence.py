@@ -1,5 +1,7 @@
 import dynet as dy
+import numpy as np
 import xnmt.batcher
+
 
 class ExpressionSequence(object):
   """A class to represent a sequence of expressions.

@@ -3,6 +3,8 @@ from xnmt.serializer import Serializable
 import xnmt.batcher
 from xnmt.hier_model import HierarchicalModel, recursive
 import xnmt.linear
+from xnmt.nn import Linear
+import xnmt.transformer
 
 class Decoder(HierarchicalModel):
   '''
@@ -191,3 +193,6 @@ class LinearBridge(Bridge, Serializable):
       raise RuntimeError("LinearBridge requires enc_dim == %s, but got %s" % (self.enc_dim, enc_final_states[0].main_expr().dim()[0][0]))
     decoder_init = [self.projector(enc_state.main_expr()) for enc_state in enc_final_states[-self.dec_layers:]]
     return decoder_init + [dy.tanh(dec) for dec in decoder_init]
+
+
+

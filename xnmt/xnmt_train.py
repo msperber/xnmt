@@ -31,6 +31,7 @@ import xnmt.segmenting_encoder
 from xnmt.evaluator import LossScore
 from xnmt.tee import Tee
 from subprocess import Popen
+from xnmt.nn import AIAYNAdamTrainer
 '''
 This will be the main class to perform training.
 '''
@@ -56,6 +57,7 @@ options = [
   Option("momentum", float, default_value = 0.9),
   Option("lr_decay", float, default_value=1.0),
   Option("lr_decay_times", int, default_value=3, help_str="Early stopping after decaying learning rate a certain number of times"),
+  Option("warmup_steps", int, default_value=4000, help_str="warmup steps"),
   Option("attempts_before_lr_decay", int, default_value=1, help_str="apply LR decay after dev scores haven't improved over this many checkpoints"),
   Option("dev_metrics", default_value="", help_str="Comma-separated list of evaluation metrics (bleu/wer/cer)"),
   Option("schedule_metric", default_value="loss", help_str="determine learning schedule based on this dev_metric (loss/bleu/wer/cer)"),
@@ -134,6 +136,9 @@ class XnmtTrainer(object):
       trainer = dy.AdamTrainer(model_context.dynet_param_collection.param_col, alpha = args.learning_rate)
     elif args.trainer.lower() == "msgd":
       trainer = dy.MomentumSGDTrainer(model_context.dynet_param_collection.param_col, args.learning_rate, mom = args.momentum)
+    elif args.trainer.lower() == "aiaynadam":
+      trainer = AIAYNAdamTrainer(model_context.dynet_param_collection.param_col, args.learning_rate, 512, args.warmup_steps)
+    
     else:
       raise RuntimeError("Unknown trainer {}".format(args.trainer))
     return trainer
