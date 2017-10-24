@@ -291,8 +291,7 @@ class XnmtTrainer(object):
             self.logger.report_auxiliary_score(eval_scores[metric])
         # Write out the model if it's the best one
         if self.logger.report_dev_and_check_model(self.args.model_file):
-          # TODO: Remove the False statement to enable saving of file
-          if False and self.args.model_file is not None:
+          if self.args.model_file is not None:
             self.model_serializer.save_to_file(self.args.model_file,
                                                SerializeContainer(self.corpus_parser, self.model, self.model_context),
                                                self.model_context.dynet_param_collection)
