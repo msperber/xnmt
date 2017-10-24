@@ -8,11 +8,13 @@ from xnmt.hier_model import HierarchicalModel, recursive
 from xnmt.serializer import Serializable
 from xnmt.expression_sequence import ExpressionSequence
 from xnmt.encoder_state import FinalEncoderState
+from xnmt.reports import Reportable
 
 # The LSTM model builders
 import xnmt.pyramidal
 import xnmt.residual
 import xnmt.lstm
+import xnmt.transformer
 
 
 class Encoder(HierarchicalModel):
@@ -33,6 +35,7 @@ class Encoder(HierarchicalModel):
     """ Return the state that represents the transduced sequence """
     return NotImplementedError('Unimplemented get_final_state for class:', self.__class__.__name__)
 
+
 class BuilderEncoder(Encoder):
   def __init__(self):
     self._final_states = None
@@ -48,6 +51,7 @@ class BuilderEncoder(Encoder):
   def get_final_states(self):
     return self._final_states
 
+
 class IdentityEncoder(Encoder, Serializable):
   yaml_tag = u'!IdentityEncoder'
 
@@ -56,6 +60,7 @@ class IdentityEncoder(Encoder, Serializable):
 
   def get_final_state(self):
     return None
+
 
 class LSTMEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!LSTMEncoder'
@@ -78,6 +83,7 @@ class LSTMEncoder(BuilderEncoder, Serializable):
   def set_train(self, val):
     self.builder.set_dropout(self.dropout if val else 0.0)
 
+
 class ResidualLSTMEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!ResidualLSTMEncoder'
 
@@ -95,6 +101,7 @@ class ResidualLSTMEncoder(BuilderEncoder, Serializable):
   def set_train(self, val):
     self.builder.set_dropout(self.dropout if val else 0.0)
 
+
 class PyramidalLSTMEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!PyramidalLSTMEncoder'
 
@@ -109,6 +116,7 @@ class PyramidalLSTMEncoder(BuilderEncoder, Serializable):
   @recursive
   def set_train(self, val):
     self.builder.set_dropout(self.dropout if val else 0.0)
+
 
 class ModularEncoder(Encoder, Serializable):
   yaml_tag = u'!ModularEncoder'
@@ -137,6 +145,43 @@ class ModularEncoder(Encoder, Serializable):
   @recursive
   def set_train(self, val):
     pass
+
+
+class SegmentingEncoder(Encoder, Serializable, Reportable):
+  yaml_tag = u'!SegmentingEncoder'
+
+  def __init__(self, context, embed_encoder=None, segment_transducer=None, lmbd_learning=None, learn_segmentation=True):
+    model = context.dynet_param_collection.param_col
+
+    self.ctr = 0
+    self.lmbd     = lmbd_learning["initial"]
+    self.lmbd_max = lmbd_learning["max"]
+    self.lmbd_min = lmbd_learning["min"]
+    self.lmbd_grw = lmbd_learning["grow"]
+    self.warmup   = lmbd_learning["warmup"]
+    self.builder = xnmt.segmenting_encoder.SegmentingEncoderBuilder(embed_encoder, segment_transducer,
+                                                               learn_segmentation, model)
+
+    self.register_hier_child(self.builder)
+
+  def transduce(self, embed_sent):
+    lmbd = 0 if self.ctr < self.warmup else self.lmbd
+    return ExpressionSequence(expr_tensor=self.builder.transduce(embed_sent, lmbd))
+
+  def calc_additional_loss(self, reward):
+    lmbd = 0 if self.ctr < self.warmup else self.lmbd
+    return self.builder.calc_additional_loss(reward, lmbd)
+
+
+  def new_epoch(self):
+    self.ctr += 1
+
+    if self.ctr > self.warmup:
+      self.lmbd *= self.lmbd_grw
+      self.lmbd = min(self.lmbd, self.lmbd_max)
+      self.lmbd = max(self.lmbd, self.lmbd_min)
+      print("Now lambda:", self.lmbd, file=sys.stderr)
+
 
 class FullyConnectedEncoder(Encoder, Serializable):
   yaml_tag = u'!FullyConnectedEncoder'
@@ -179,6 +224,7 @@ class FullyConnectedEncoder(Encoder, Serializable):
 
   def initial_state(self):
     return PseudoState(self)
+
 
 class ConvConnectedEncoder(Encoder, Serializable):
   yaml_tag = u'!ConvConnectedEncoder'
@@ -278,6 +324,24 @@ class ConvConnectedEncoder(Encoder, Serializable):
 
   def initial_state(self):
     return PseudoState(self)
+
+
+class TransformerEncoder(BuilderEncoder, Serializable):
+  yaml_tag = u'!TransformerEncoder'
+
+  def __init__(self, context, input_dim=512, layers=1, hidden_dim=512, dropout=None, **kwargs):
+    param_col = context.dynet_param_collection.param_col
+    self.input_dim = input_dim
+    self.hidden_dim = hidden_dim
+    assert(input_dim == hidden_dim)
+    self.dropout = dropout or context.dropout
+    self.layers = layers
+    self.builder = xnmt.transformer.TransformerEncoderLayer(input_dim, hidden_dim, param_col)
+
+  @recursive
+  def set_train(self, val):
+    self.builder.set_dropout(self.dropout if val else 0.0)
+
 
 if __name__ == '__main__':
   # To use this code, comment out the model initialization in the class and the line for src.as_tensor()
