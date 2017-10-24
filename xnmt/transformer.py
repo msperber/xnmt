@@ -9,11 +9,13 @@ MIN_VAL = -10000   # This value is close to NEG INFINITY
 
 
 class MultiHeadedAttention(object):
-  def __init__(self, head_count, model_dim, model):
+  def __init__(self, head_count, model_dim, model, downsample_factor=1):
     assert model_dim % head_count == 0
     self.dim_per_head = model_dim // head_count
     self.model_dim = model_dim
     self.head_count = head_count
+    assert downsample_factor >= 1
+    self.downsample_factor = downsample_factor
 
     # Linear Projection of keys
     self.linear_keys = Linear(model_dim, head_count * self.dim_per_head, model)
@@ -28,7 +30,15 @@ class MultiHeadedAttention(object):
     self.layer_norm = LayerNorm(model_dim, model)
 
   def __call__(self, key, value, query, mask, p):
-    residual = TimeDistributed()(query)
+    sent_len = key.dim()[0][1]
+    hidden_dim = key.dim()[0][0]
+    if self.downsample_factor > 1:
+      strided_query = ExpressionSequence(expr_tensor=dy.strided_select(query.as_tensor(), [0, hidden_dim, 1, 0, sent_len, self.downsample_factor]))
+      residual = TimeDistributed()(strided_query)
+      sent_len_out = len(strided_query)
+    else:
+      residual = TimeDistributed()(query)
+      sent_len_out = sent_len
     batch_size = key[0].dim()[1]
 
     def shape_projection(x):
@@ -68,11 +78,14 @@ class MultiHeadedAttention(object):
 
     # Computing weighted attention score
     attn_prod = drop_attn * value_up
+    
+    if self.downsample_factor > 1:
+      attn_prod = dy.strided_select(attn_prod, [0,sent_len,self.downsample_factor])
 
     # Reshaping the attn_prod to input query dimensions
-    temp = dy.reshape(attn_prod, (len(query), self.dim_per_head * self.head_count), batch_size=batch_size)
+    temp = dy.reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), batch_size=batch_size)
     temp = dy.transpose(temp)
-    out = dy.reshape(temp, (self.model_dim,), batch_size=batch_size*len(query))
+    out = dy.reshape(temp, (self.model_dim,), batch_size=batch_size*sent_len_out)
 
     # Adding dropout and layer normalization
     res = dy.dropout(out, p) + residual
@@ -89,10 +102,11 @@ def expr_to_sequence(expr_, seq_len, batch_size):
 
 
 class TransformerEncoderLayer(object):
-  def __init__(self, size, rnn_size, model, head_count=8, hidden_size=2048):
-    self.self_attn = MultiHeadedAttention(head_count, size, model)  # Self Attention
+  def __init__(self, size, rnn_size, model, head_count=8, hidden_size=2048, downsample_factor=1):
+    self.self_attn = MultiHeadedAttention(head_count, size, model, downsample_factor)  # Self Attention
     self.feed_forward = PositionwiseFeedForward(size, hidden_size, model)  # Feed Forward
     self.head_count = head_count
+    self.downsample_factor = downsample_factor
 
   def set_dropout(self, dropout):
     self.dropout = dropout
@@ -106,9 +120,11 @@ class TransformerEncoderLayer(object):
         m_src = np.broadcast_to(input.mask.np_arr.T, (self.head_count, seq_len, seq_len, batch_size))
 
     mid = self.self_attn(input, input, input, mask=m_src, p=self.dropout)
+    if self.downsample_factor > 1:
+      seq_len = int(math.ceil(seq_len / float(self.downsample_factor)))
     out = self.feed_forward(mid, p=self.dropout)
 
-    assert (np.isnan(out.npvalue()).any() == False)  # Check for Nan
+#    assert (np.isnan(out.npvalue()).any() == False)  # Check for Nan
     out_list = expr_to_sequence(out, seq_len, batch_size)
     return out_list
 

@@ -122,6 +122,7 @@ class LazyNumpyExpressionSequence(ExpressionSequence):
     self.expr_list, self.expr_tensor = None, None
     self.mask = mask
     self.tensor_transposed = False
+    self.tensor_time_dim = -1
   def __len__(self):
     if self.expr_list or self.expr_tensor:
       return super(LazyNumpyExpressionSequence, self).__len__()

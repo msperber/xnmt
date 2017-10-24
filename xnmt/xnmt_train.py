@@ -31,7 +31,6 @@ import xnmt.segmenting_encoder
 from xnmt.evaluator import LossScore
 from xnmt.tee import Tee
 from subprocess import Popen
-from xnmt.nn import AIAYNAdamTrainer
 '''
 This will be the main class to perform training.
 '''
@@ -136,8 +135,6 @@ class XnmtTrainer(object):
       trainer = dy.AdamTrainer(model_context.dynet_param_collection.param_col, alpha = args.learning_rate)
     elif args.trainer.lower() == "msgd":
       trainer = dy.MomentumSGDTrainer(model_context.dynet_param_collection.param_col, args.learning_rate, mom = args.momentum)
-    elif args.trainer.lower() == "aiaynadam":
-      trainer = AIAYNAdamTrainer(model_context.dynet_param_collection.param_col, args.learning_rate, 512, args.warmup_steps)
     
     else:
       raise RuntimeError("Unknown trainer {}".format(args.trainer))

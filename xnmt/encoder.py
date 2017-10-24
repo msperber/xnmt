@@ -379,14 +379,14 @@ class ConvConnectedEncoder(Encoder, Serializable):
 class TransformerEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!TransformerEncoder'
 
-  def __init__(self, context, input_dim=512, layers=1, hidden_dim=512, dropout=None, **kwargs):
-    param_col = context.dynet_param_collection.param_col
+  def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=512, dropout=None, downsample_factor=1):
+    param_col = yaml_context.dynet_param_collection.param_col
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
     assert(input_dim == hidden_dim)
-    self.dropout = dropout or context.dropout
+    self.dropout = dropout or yaml_context.dropout
     self.layers = layers
-    self.builder = xnmt.transformer.TransformerEncoderLayer(input_dim, hidden_dim, param_col)
+    self.builder = xnmt.transformer.TransformerEncoderLayer(input_dim, hidden_dim, param_col, downsample_factor=downsample_factor)
 
   @recursive
   def set_train(self, val):
