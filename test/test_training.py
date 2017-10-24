@@ -20,6 +20,7 @@ import xnmt.xnmt_train
 from xnmt.options import Args
 from xnmt.vocab import Vocab
 from xnmt.model_context import ModelContext, PersistentParamCollection
+from xnmt.training_strategy import TrainingStrategy
 
 class TestTruncatedBatchTraining(unittest.TestCase):
 
@@ -70,6 +71,7 @@ class TestTruncatedBatchTraining(unittest.TestCase):
               trg_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
               decoder=MlpSoftmaxDecoder(self.model_context, vocab_size=100),
             )
+    model.initialize_training_strategy(TrainingStrategy())
     model.set_train(False)
     self.assert_single_loss_equals_batch_loss(model)
 
@@ -81,6 +83,7 @@ class TestTruncatedBatchTraining(unittest.TestCase):
               trg_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
               decoder=MlpSoftmaxDecoder(self.model_context, vocab_size=100),
             )
+    model.initialize_training_strategy(TrainingStrategy())
     model.set_train(False)
     self.assert_single_loss_equals_batch_loss(model)
 
@@ -92,6 +95,7 @@ class TestTruncatedBatchTraining(unittest.TestCase):
               trg_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
               decoder=MlpSoftmaxDecoder(self.model_context, vocab_size=100, bridge=CopyBridge(self.model_context, dec_layers=1)),
             )
+    model.initialize_training_strategy(TrainingStrategy())
     model.set_train(False)
     self.assert_single_loss_equals_batch_loss(model)
 
@@ -147,6 +151,7 @@ class TestBatchTraining(unittest.TestCase):
               trg_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
               decoder=MlpSoftmaxDecoder(self.model_context, vocab_size=100),
             )
+    model.initialize_training_strategy(TrainingStrategy())
     model.set_train(False)
     self.assert_single_loss_equals_batch_loss(model)
 
@@ -158,6 +163,7 @@ class TestBatchTraining(unittest.TestCase):
               trg_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
               decoder=MlpSoftmaxDecoder(self.model_context, vocab_size=100),
             )
+    model.initialize_training_strategy(TrainingStrategy())
     model.set_train(False)
     self.assert_single_loss_equals_batch_loss(model)
 
@@ -169,6 +175,7 @@ class TestBatchTraining(unittest.TestCase):
               trg_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
               decoder=MlpSoftmaxDecoder(self.model_context, vocab_size=100, bridge=CopyBridge(self.model_context, dec_layers=1)),
             )
+    model.initialize_training_strategy(TrainingStrategy())
     model.set_train(False)
     self.assert_single_loss_equals_batch_loss(model)
 
@@ -187,6 +194,7 @@ class TestTrainDevLoss(unittest.TestCase):
                                                             dev_trg = "examples/data/head.en")
     train_args['corpus_parser'] = BilingualCorpusParser(src_reader = PlainTextReader(),
                                                         trg_reader = PlainTextReader())
+    train_args['training_strategy'] = TrainingStrategy()
     train_args['model'] = DefaultTranslator(src_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
                                             encoder=LSTMEncoder(self.model_context),
                                             attender=StandardAttender(self.model_context),
@@ -219,6 +227,7 @@ class TestOverfitting(unittest.TestCase):
                                                             dev_trg = "examples/data/head.en")
     train_args['corpus_parser'] = BilingualCorpusParser(src_reader = PlainTextReader(),
                                                         trg_reader = PlainTextReader())
+    train_args['training_strategy'] = TrainingStrategy()
     train_args['model'] = DefaultTranslator(src_embedder=SimpleWordEmbedder(self.model_context, vocab_size=100),
                                             encoder=LSTMEncoder(self.model_context),
                                             attender=StandardAttender(self.model_context),
