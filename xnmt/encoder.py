@@ -379,7 +379,8 @@ class ConvConnectedEncoder(Encoder, Serializable):
 class TransformerEncoder(BuilderEncoder, Serializable):
   yaml_tag = u'!TransformerEncoder'
 
-  def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=512, dropout=None, 
+  def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=512, 
+               head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False):
     param_col = yaml_context.dynet_param_collection.param_col
     self.input_dim = input_dim
@@ -391,6 +392,7 @@ class TransformerEncoder(BuilderEncoder, Serializable):
       self.modules.append(xnmt.transformer.TransformerEncoderLayer(hidden_dim, param_col, 
                                                                    downsample_factor=downsample_factor, 
                                                                    input_dim=input_dim if layer_i==0 else hidden_dim,
+                                                                   head_count=head_count, ff_hidden_dim=ff_hidden_dim,
                                                                    diagonal_mask_width=diagonal_mask_width,
                                                                    mask_self=mask_self))
 
