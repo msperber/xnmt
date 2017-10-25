@@ -118,10 +118,10 @@ class MlpSoftmaxDecoder(RnnDecoder, Serializable):
     :returns: Scores over the vocabulary given this state.
     """
     h_t = dy.tanh(self.context_projector(dy.concatenate([mlp_dec_state.rnn_state.output(), mlp_dec_state.context])))
-    if self.self.fix_context_norm != None:
+    if self.fix_context_norm != None:
       h_t = dy.cdiv(h_t, dy.l2_norm(h_t))
-      if self.self.fix_context_norm != 1:
-        h_t *= self.self.fix_context_norm
+      if self.fix_context_norm != 1:
+        h_t *= self.fix_context_norm
     return self.vocab_projector(h_t)
 
   def calc_loss(self, mlp_dec_state, ref_action):
