@@ -33,7 +33,15 @@ class MultiHeadedAttention(object):
     
     if model_dim!=input_dim: self.res_shortcut = PositionwiseLinear(input_dim, model_dim, model)
 
-  def __call__(self, key, value, query, mask, p):
+  def __call__(self, key, value, query, att_mask, batch_mask, p):
+    """
+    :param key: DyNet expression of dimensions (input_dim, time) x batch
+    :param value: DyNet expression of dimensions (input_dim, time) x batch
+    :param query: DyNet expression of dimensions (input_dim, time) x batch
+    :param att_mask: numpy array of dimensions (time, time); pre-transposed
+    :param batch_mask: numpy array of dimensions (batch, time)
+    :param p: dropout prob
+    """
     sent_len = key.dim()[0][1]
     hidden_dim = key.dim()[0][0]
     if self.downsample_factor > 1:
@@ -65,17 +73,16 @@ class MultiHeadedAttention(object):
     scaled = scaled / math.sqrt(self.dim_per_head)
 
     # Apply Mask here
-    if mask is not None:
-      _, l1, l2, b = mask.shape
-      assert(b == batch_size)
-      # Following 3 operations are essential to convert a numpy matrix of dimensions mask.shape
-      # to the dimensions of scaled tensor in correct way
-
-      # m1 = np.broadcast_to(mask.T, (self.head_count, l, l, batch_size))
-      m2 = np.moveaxis(mask, [0, 1, 2], [3, 0, 1])
-      m3 = (m2.reshape(l1, l2, -1) * MIN_VAL) + 1  # Convert all 0's to 1's and 0's to MIN_VAL+1
-      new_mask = dy.inputTensor(m3, batched=True)
-      scaled = dy.cmult(scaled, new_mask)
+    if att_mask is not None:
+      scaled += dy.inputTensor(att_mask * -100.0)
+    if batch_mask is not None:
+      # reshape (batch, time) -> (time, head_count*batch), then *-100
+      mask_expr = dy.inputTensor(np.resize(np.broadcast_to(batch_mask.T[:,np.newaxis,:],
+                                                         (sent_len, self.head_count, batch_size)), 
+                                         (1, sent_len, self.head_count*batch_size)) \
+                                         * -100,
+                                 batched=True)
+      scaled += mask_expr
 
     # Computing Softmax here.
     attn = dy.softmax_rows(scaled)
@@ -127,29 +134,23 @@ class TransformerEncoderLayer(object):
     seq_len = len(x)
     batch_size = x[0].dim()[1]
 
-    m_src = None
-    if x.mask is not None or self.diagonal_mask_width is not None or self.mask_self:
-      if x.mask is None:
-        tmp_mask_T = np.zeros((seq_len, batch_size))
+    att_mask = None
+    if self.diagonal_mask_width is not None or self.mask_self:
+      if self.diagonal_mask_width is None:
+        att_mask = np.zeros((seq_len,seq_len))
       else:
-        tmp_mask_T = x.mask.np_arr.T
-        
-      m_src = np.array(np.broadcast_to(tmp_mask_T, (seq_len, seq_len, batch_size)))
+        att_mask = np.ones((seq_len, seq_len))
+        for i in range(seq_len):
+          from_i = max(0, i-self.diagonal_mask_width//2)
+          to_i = min(seq_len, i+self.diagonal_mask_width//2+1)
+          att_mask[from_i:to_i,from_i:to_i] = 0.0
 
       if self.mask_self:
         for i in range(seq_len):
-            m_src[i,i,:] = 1.0
+            att_mask[i,i] = 1.0
       
-      if self.diagonal_mask_width is not None:
-        diag_mask = np.ones((seq_len, seq_len))
-        for i in range(seq_len):
-          r = range(max(0, i-self.diagonal_mask_width//2), min(seq_len, i+self.diagonal_mask_width//2+1))
-          diag_mask[r,r] = 0.0
-        m_src = np.maximum(m_src, diag_mask[:,:,np.newaxis])
         
-      m_src = np.broadcast_to(m_src, (self.head_count, seq_len, seq_len, batch_size))
-
-    mid = self.self_attn(key=x, value=x, query=x, mask=m_src, p=self.dropout)
+    mid = self.self_attn(key=x, value=x, query=x, att_mask=att_mask, batch_mask=x.mask.np_arr if x.mask else None, p=self.dropout)
     if self.downsample_factor > 1:
       seq_len = int(math.ceil(seq_len / float(self.downsample_factor)))
     out = self.feed_forward(mid, p=self.dropout)
