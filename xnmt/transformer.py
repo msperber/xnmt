@@ -159,7 +159,7 @@ class TransformerEncoderLayer(object):
     out_list = expr_to_sequence(out, seq_len, batch_size)
     
     out_mask = x.mask
-    if self.downsample_factor > 1:
+    if self.downsample_factor > 1 and out_mask is not None:
       out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
     
     return ExpressionSequence(out_list, mask=out_mask)
