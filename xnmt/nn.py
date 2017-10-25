@@ -172,38 +172,50 @@ class LayerNorm(object):
     self.p_g = model.add_parameters(dim=d_hid, init=dy.ConstInitializer(1.0))
     self.p_b = model.add_parameters(dim=d_hid, init=dy.ConstInitializer(0.0))
 
-  def __call__(self, input):
+  def __call__(self, x):
     g = dy.parameter(self.p_g)
     b = dy.parameter(self.p_b)
-    return dy.layer_norm(input, g, b)
+    return dy.layer_norm(x, g, b)
 
 
 class TimeDistributed(object):
-  def __call__(self, input):
-    batch_size = input[0].dim()[1]
-    model_dim = input[0].dim()[0][0]
-    seq_len = len(input)
+  def __call__(self, x):
+    batch_size = x[0].dim()[1]
+    model_dim = x[0].dim()[0][0]
+    seq_len = len(x)
     total_words = seq_len * batch_size
-    input_tensor = input.as_tensor()
+    input_tensor = x.as_tensor()
     return dy.reshape(input_tensor, (model_dim,), batch_size=total_words)
 
 
 class PositionwiseFeedForward(object):
-  def __init__(self, size, hidden_size, model):
+  def __init__(self, input_dim, hidden_dim, model):
     """
     Args:
-        size(int): the size of input for the first-layer of the FFN.
-        hidden_size(int): the hidden layer size of the second-layer
+        input_dim(int): the size of input for the first-layer of the FFN.
+        hidden_dim(int): the hidden layer size of the second-layer
                           of the FNN.
-        droput(float): dropout probability(0-1.0).
     """
-    self.w_1 = Linear(size, hidden_size, model)
-    self.w_2 = Linear(hidden_size, size, model)
-    self.layer_norm = LayerNorm(size, model)
+    self.w_1 = Linear(input_dim, hidden_dim, model)
+    self.w_2 = Linear(hidden_dim, input_dim, model)
+    self.layer_norm = LayerNorm(input_dim, model)
 
   def __call__(self, x, p):
     residual = x
     output = dy.dropout(self.w_2(dy.rectify(self.w_1(x))), p)
     return self.layer_norm(output + residual)
+
+class PositionwiseLinear(object):
+  def __init__(self, input_dim, hidden_dim, model):
+    """
+    Args:
+        input_dim(int): the size of input for the first-layer of the FFN.
+        hidden_dim(int): the hidden layer size of the second-layer
+                          of the FNN.
+    """
+    self.w_1 = Linear(input_dim, hidden_dim, model)
+
+  def __call__(self, x):
+    return self.w_1(x)
 
 

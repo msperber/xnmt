@@ -383,14 +383,25 @@ class TransformerEncoder(BuilderEncoder, Serializable):
     param_col = yaml_context.dynet_param_collection.param_col
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
-    assert(input_dim == hidden_dim)
     self.dropout = dropout or yaml_context.dropout
     self.layers = layers
-    self.builder = xnmt.transformer.TransformerEncoderLayer(input_dim, hidden_dim, param_col, downsample_factor=downsample_factor)
+    self.modules = []
+    for layer_i in range(layers):
+      self.modules.append(xnmt.transformer.TransformerEncoderLayer(hidden_dim, param_col, 
+                                                                   downsample_factor=downsample_factor, 
+                                                                   input_dim=input_dim if layer_i==0 else hidden_dim))
+
+  def transduce(self, sent):
+    for module in self.modules:
+      enc_sent = module.transduce(sent)
+      sent = enc_sent
+    self._final_states = [FinalEncoderState(sent[-1])]
+    return sent
 
   @recursive
   def set_train(self, val):
-    self.builder.set_dropout(self.dropout if val else 0.0)
+    for module in self.modules:
+      module.set_dropout(self.dropout if val else 0.0)
 
 
 

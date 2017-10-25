@@ -2,14 +2,16 @@ import dynet as dy
 import math
 import numpy as np
 from xnmt.expression_sequence import ExpressionSequence
-from xnmt.nn import *
+from xnmt.nn import LayerNorm, Linear, PositionwiseFeedForward, TimeDistributed, PositionwiseLinear
 
 MAX_SIZE = 5000
 MIN_VAL = -10000   # This value is close to NEG INFINITY
 
 
 class MultiHeadedAttention(object):
-  def __init__(self, head_count, model_dim, model, downsample_factor=1):
+  def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None):
+    if input_dim is None: input_dim = model_dim
+    self.input_dim = input_dim
     assert model_dim % head_count == 0
     self.dim_per_head = model_dim // head_count
     self.model_dim = model_dim
@@ -18,16 +20,18 @@ class MultiHeadedAttention(object):
     self.downsample_factor = downsample_factor
 
     # Linear Projection of keys
-    self.linear_keys = Linear(model_dim, head_count * self.dim_per_head, model)
+    self.linear_keys = Linear(input_dim, head_count * self.dim_per_head, model)
 
     # Linear Projection of values
-    self.linear_values = Linear(model_dim, head_count * self.dim_per_head, model)
+    self.linear_values = Linear(input_dim, head_count * self.dim_per_head, model)
 
     # Linear Projection of query
-    self.linear_query = Linear(model_dim, head_count * self.dim_per_head, model)
+    self.linear_query = Linear(input_dim, head_count * self.dim_per_head, model)
 
     # Layer Norm Module
     self.layer_norm = LayerNorm(model_dim, model)
+    
+    if model_dim!=input_dim: self.res_shortcut = PositionwiseLinear(input_dim, model_dim, model)
 
   def __call__(self, key, value, query, mask, p):
     sent_len = key.dim()[0][1]
@@ -39,6 +43,10 @@ class MultiHeadedAttention(object):
     else:
       residual = TimeDistributed()(query)
       sent_len_out = sent_len
+    if self.model_dim!=self.input_dim:
+      residual = self.res_shortcut(residual)
+      
+      
     batch_size = key[0].dim()[1]
 
     def shape_projection(x):
@@ -102,31 +110,36 @@ def expr_to_sequence(expr_, seq_len, batch_size):
 
 
 class TransformerEncoderLayer(object):
-  def __init__(self, size, rnn_size, model, head_count=8, hidden_size=2048, downsample_factor=1):
-    self.self_attn = MultiHeadedAttention(head_count, size, model, downsample_factor)  # Self Attention
-    self.feed_forward = PositionwiseFeedForward(size, hidden_size, model)  # Feed Forward
+  def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1, input_dim=None):
+    self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, input_dim=input_dim)  # Self Attention
+    self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model)  # Feed Forward
     self.head_count = head_count
     self.downsample_factor = downsample_factor
 
   def set_dropout(self, dropout):
     self.dropout = dropout
 
-  def transduce(self, input):
-    seq_len = len(input)
-    batch_size = input[0].dim()[1]
+  def transduce(self, x):
+    seq_len = len(x)
+    batch_size = x[0].dim()[1]
 
     m_src = None
-    if input.mask is not None:
-        m_src = np.broadcast_to(input.mask.np_arr.T, (self.head_count, seq_len, seq_len, batch_size))
+    if x.mask is not None:
+        m_src = np.broadcast_to(x.mask.np_arr.T, (self.head_count, seq_len, seq_len, batch_size))
 
-    mid = self.self_attn(input, input, input, mask=m_src, p=self.dropout)
+    mid = self.self_attn(key=x, value=x, query=x, mask=m_src, p=self.dropout)
     if self.downsample_factor > 1:
       seq_len = int(math.ceil(seq_len / float(self.downsample_factor)))
     out = self.feed_forward(mid, p=self.dropout)
 
 #    assert (np.isnan(out.npvalue()).any() == False)  # Check for Nan
     out_list = expr_to_sequence(out, seq_len, batch_size)
-    return out_list
+    
+    out_mask = x.mask
+    if self.downsample_factor > 1:
+      out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
+    
+    return ExpressionSequence(out_list, mask=out_mask)
 
 
 
