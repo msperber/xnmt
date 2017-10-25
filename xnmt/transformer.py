@@ -77,9 +77,8 @@ class MultiHeadedAttention(object):
       new_mask = dy.inputTensor(m3, batched=True)
       scaled = dy.cmult(scaled, new_mask)
 
-    # Computing Softmax here. Doing double transpose here, as softmax in dynet is applied to each column
-    # May be Optimized ? // Dynet Tricks ??
-    attn = dy.transpose(dy.softmax(dy.transpose(scaled)))
+    # Computing Softmax here.
+    attn = dy.softmax_rows(scaled)
 
     # Applying dropout to attention
     drop_attn = dy.dropout(attn, p)
