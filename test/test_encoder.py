@@ -87,7 +87,7 @@ class TestEncoder(unittest.TestCase):
               decoder=MlpSoftmaxDecoder(self.model_context, vocab_size=100),
             )
 
-    batcher = xnmt.batcher.from_spec("trg", 3)
+    batcher = xnmt.batcher.TrgBatcher(batch_size=3)
     train_src, train_trg = \
       batcher.pack(self.training_corpus.train_src_data, self.training_corpus.train_trg_data)
     
