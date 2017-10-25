@@ -110,11 +110,16 @@ def expr_to_sequence(expr_, seq_len, batch_size):
 
 
 class TransformerEncoderLayer(object):
-  def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1, input_dim=None):
-    self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, input_dim=input_dim)  # Self Attention
+  def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
+               input_dim=None, diagonal_mask_width=None, mask_self=False):
+    self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
+                                          input_dim=input_dim)
     self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model)  # Feed Forward
     self.head_count = head_count
     self.downsample_factor = downsample_factor
+    self.diagonal_mask_width = diagonal_mask_width
+    if diagonal_mask_width: assert diagonal_mask_width%2==1
+    self.mask_self = mask_self
 
   def set_dropout(self, dropout):
     self.dropout = dropout
@@ -124,8 +129,26 @@ class TransformerEncoderLayer(object):
     batch_size = x[0].dim()[1]
 
     m_src = None
-    if x.mask is not None:
-        m_src = np.broadcast_to(x.mask.np_arr.T, (self.head_count, seq_len, seq_len, batch_size))
+    if x.mask is not None or self.diagonal_mask_width is not None or self.mask_self:
+      if x.mask is None:
+        tmp_mask_T = np.zeros((seq_len, batch_size))
+      else:
+        tmp_mask_T = x.mask.np_arr.T
+        
+      m_src = np.array(np.broadcast_to(tmp_mask_T, (seq_len, seq_len, batch_size)))
+
+      if self.mask_self:
+        for i in range(seq_len):
+            m_src[i,i,:] = 1.0
+      
+      if self.diagonal_mask_width is not None:
+        diag_mask = np.ones((seq_len, seq_len))
+        for i in range(seq_len):
+          r = range(max(0, i-self.diagonal_mask_width//2), min(seq_len, i+self.diagonal_mask_width//2+1))
+          diag_mask[r,r] = 0.0
+        m_src = np.maximum(m_src, diag_mask[:,:,np.newaxis])
+        
+      m_src = np.broadcast_to(m_src, (self.head_count, seq_len, seq_len, batch_size))
 
     mid = self.self_attn(key=x, value=x, query=x, mask=m_src, p=self.dropout)
     if self.downsample_factor > 1:
