@@ -46,8 +46,9 @@ class MlpSoftmaxDecoder(RnnDecoder, Serializable):
   def __init__(self, yaml_context, vocab_size, layers=1, input_dim=None, lstm_dim=None,
                mlp_hidden_dim=None, trg_embed_dim=None, dropout=None,
                rnn_spec="lstm", residual_to_output=False, input_feeding=True,
-               bridge=None):
+               bridge=None, fix_context_norm=None):
     param_col = yaml_context.dynet_param_collection.param_col
+    self.fix_context_norm = fix_context_norm
     # Define dim
     lstm_dim       = lstm_dim or yaml_context.default_layer_dim
     mlp_hidden_dim = mlp_hidden_dim or yaml_context.default_layer_dim
@@ -117,6 +118,10 @@ class MlpSoftmaxDecoder(RnnDecoder, Serializable):
     :returns: Scores over the vocabulary given this state.
     """
     h_t = dy.tanh(self.context_projector(dy.concatenate([mlp_dec_state.rnn_state.output(), mlp_dec_state.context])))
+    if self.self.fix_context_norm != None:
+      h_t = dy.cdiv(h_t, dy.l2_norm(h_t))
+      if self.self.fix_context_norm != 1:
+        h_t *= self.self.fix_context_norm
     return self.vocab_projector(h_t)
 
   def calc_loss(self, mlp_dec_state, ref_action):
