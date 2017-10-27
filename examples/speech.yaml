@@ -25,8 +25,8 @@ defaults:
       src_embedder: !NoopEmbedder
         emb_dim: 240
       encoder: !PyramidalLSTMEncoder
-        layers: 1
-        downsampling_method: skip
+        layers: 2
+        downsampling_method: random-skip
         input_dim: 240
         hidden_dim: 64
       attender: !StandardAttender

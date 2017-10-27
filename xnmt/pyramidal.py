@@ -1,8 +1,8 @@
-import math
 import numpy as np
 import dynet as dy
 from xnmt.encoder_state import FinalEncoderState, PseudoState
 import xnmt.lstm
+from xnmt.batcher import Mask
 from xnmt.expression_sequence import ExpressionSequence, ReversedExpressionSequence
 
 class PyramidalRNNBuilder(object):
@@ -23,13 +23,13 @@ class PyramidalRNNBuilder(object):
     :param hidden_dim: size of the outputs (and intermediate layer representations)
     :param model
     :param rnn_builder_factory: RNNBuilder subclass, e.g. VanillaLSTMBuilder
-    :param downsampling_method: how to perform downsampling (concat|skip)
+    :param downsampling_method: how to perform downsampling (concat|skip|random-skip)
     :param reduce_factor: integer, or list of ints (different skip for each layer)
     """
     assert num_layers > 0
     assert hidden_dim % 2 == 0
     assert type(reduce_factor)==int or (type(reduce_factor)==list and len(reduce_factor)==num_layers-1)
-    assert downsampling_method in ["concat", "skip"]
+    assert downsampling_method in ["concat", "skip", "random-skip"]
     self.builder_layers = []
     self.downsampling_method = downsampling_method
     self.reduce_factor = reduce_factor
@@ -38,7 +38,7 @@ class PyramidalRNNBuilder(object):
     b = xnmt.lstm.CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, model)
     self.builder_layers.append((f, b))
     for _ in range(num_layers - 1):
-      layer_input_dim = hidden_dim if downsampling_method=="skip" else hidden_dim*reduce_factor
+      layer_input_dim = hidden_dim if downsampling_method in ["skip","random-skip"] else hidden_dim*reduce_factor
       f = xnmt.lstm.CustomCompactLSTMBuilder(1, layer_input_dim, hidden_dim / 2, model)
       b = xnmt.lstm.CustomCompactLSTMBuilder(1, layer_input_dim, hidden_dim / 2, model)
       self.builder_layers.append((f, b))
@@ -81,9 +81,15 @@ class PyramidalRNNBuilder(object):
     for layer_i, (fb, bb) in enumerate(self.builder_layers):
       reduce_factor = self._reduce_factor_for_layer(layer_i)
       
+      if self.downsampling_method == "random-skip":
+        downsample_sel = np.nonzero(np.random.binomial(1, 1.0 / reduce_factor, len(es_list[0])))[0]
+        
       if es_list[0].mask is None: mask_out = None
       else:
-        mask_out = es_list[0].mask.lin_subsampled(reduce_factor)
+        if self.downsampling_method == "random-skip":
+          mask_out = Mask(es_list[0].mask.np_arr[:,downsample_sel])
+        else:
+          mask_out = es_list[0].mask.lin_subsampled(reduce_factor)
       
       while self.downsampling_method=="concat" and len(es_list[0]) % reduce_factor != 0:
         for es_i in range(len(es_list)):
@@ -97,6 +103,8 @@ class PyramidalRNNBuilder(object):
       if layer_i < len(self.builder_layers) - 1:
         if self.downsampling_method=="skip":
           es_list = [ExpressionSequence(expr_list=fs[::reduce_factor], mask=mask_out), ExpressionSequence(expr_list=bs[::reduce_factor][::-1], mask=mask_out)]
+        elif self.downsampling_method == "random-skip":
+          es_list = [ExpressionSequence(expr_list=[fs[i] for i in downsample_sel], mask=mask_out), ExpressionSequence(expr_list=[bs[i] for i in downsample_sel][::-1], mask=mask_out)]
         elif self.downsampling_method=="concat":
           es_len = len(es_list[0])
           es_list_fwd = []
