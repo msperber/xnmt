@@ -1,11 +1,79 @@
+from __future__ import division, generators
 import math
-import dynet as dy
+
 import numpy as np
-from xnmt.encoder_state import FinalEncoderState, PseudoState
+import dynet as dy
+
 from xnmt.expression_sequence import ExpressionSequence, ReversedExpressionSequence
 from xnmt.batch_norm import BatchNorm
-from xnmt.hier_model import HierarchicalModel, recursive
 from xnmt.nn import NiNLayer
+from xnmt.serializer import Serializable
+from xnmt.events import register_handler, handle_xnmt_event
+from xnmt.transducer import SeqTransducer, FinalTransducerState
+
+
+class LSTMSeqTransducer(SeqTransducer, Serializable):
+  yaml_tag = u'!LSTMSeqTransducer'
+
+  def __init__(self, yaml_context, input_dim=None, layers=1, hidden_dim=None, dropout=None, bidirectional=True):
+    register_handler(self)
+    model = yaml_context.dynet_param_collection.param_col
+    input_dim = input_dim or yaml_context.default_layer_dim
+    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    dropout = dropout or yaml_context.dropout
+    self.input_dim = input_dim
+    self.layers = layers
+    self.hidden_dim = hidden_dim
+    self.dropout = dropout
+    if bidirectional:
+      self.builder = BiCompactLSTMBuilder(layers, input_dim, hidden_dim, model)
+    else:
+      self.builder = CustomCompactLSTMBuilder(layers, input_dim, hidden_dim, model)
+
+  @handle_xnmt_event
+  def on_set_train(self, val):
+    self.builder.set_dropout(self.dropout if val else 0.0)
+
+  @handle_xnmt_event
+  def on_start_sent(self, *args, **kwargs):
+    self._final_states = None
+
+  def __call__(self, sent):
+    output = self.builder.transduce(sent)
+    if not isinstance(output, ExpressionSequence):
+      output = ExpressionSequence(expr_list=output)
+    if hasattr(self.builder, "get_final_states"):
+      self._final_states = self.builder.get_final_states()
+    else:
+      self._final_states = [FinalTransducerState(output[-1])]
+    return output
+
+  def get_final_states(self):
+    assert self._final_states is not None, "LSTMSeqTransducer.__call__() must be invoked before LSTMSeqTransducer.get_final_states()"
+    return self._final_states
+
+
+class PseudoState(object):
+  """
+  Emulates a state object for python RNN builders. This allows them to be
+  used with minimal changes in code that uses dy.VanillaLSTMBuilder.
+  """
+  def __init__(self, network, output=None):
+    self.network = network
+    self._output = output
+
+  def add_input(self, e):
+    self._output = self.network.transduce([e])[0]
+    return self
+
+  def output(self):
+    return self._output
+
+  def h(self):
+    raise NotImplementedError("h() is not supported on PseudoStates")
+
+  def s(self):
+    raise NotImplementedError("s() is not supported on PseudoStates")
 
 class LSTMState(object):
   def __init__(self, builder, h_t=None, c_t=None, state_idx=-1, prev_state=None):
@@ -157,7 +225,7 @@ class CustomCompactLSTMBuilder(object):
       else:
         c.append(expr_seq[0].mask.cmult_by_timestep_expr(c_t,pos_i,True) + expr_seq[0].mask.cmult_by_timestep_expr(c[-1],pos_i,False))
         h.append(expr_seq[0].mask.cmult_by_timestep_expr(h_t,pos_i,True) + expr_seq[0].mask.cmult_by_timestep_expr(h[-1],pos_i,False))
-    self._final_states = [FinalEncoderState(h[-1], c[-1])]
+    self._final_states = [FinalTransducerState(h[-1], c[-1])]
     return ExpressionSequence(expr_list=h[1:], mask=expr_seq[0].mask)
 
 class BiCompactLSTMBuilder:
@@ -203,7 +271,7 @@ class BiCompactLSTMBuilder:
       rev_backward_es = ExpressionSequence(self.backward_layers[layer_i].initial_state().transduce([ReversedExpressionSequence(forward_es), rev_backward_es]).as_list(), mask=mask)
       forward_es = new_forward_es
 
-    self._final_states = [FinalEncoderState(dy.concatenate([self.forward_layers[layer_i].get_final_states()[0].main_expr(),
+    self._final_states = [FinalTransducerState(dy.concatenate([self.forward_layers[layer_i].get_final_states()[0].main_expr(),
                                                             self.backward_layers[layer_i].get_final_states()[0].main_expr()]),
                                             dy.concatenate([self.forward_layers[layer_i].get_final_states()[0].cell_expr(),
                                                             self.backward_layers[layer_i].get_final_states()[0].cell_expr()])) \
@@ -262,17 +330,20 @@ class CustomLSTMBuilder(object):
         c.append(dy.cmult(i_ft, c[-1]) + dy.cmult(i_it, i_gt))
       h.append(dy.cmult(i_ot, dy.tanh(c[-1])))
     return h
-  
-class ResConvLSTMBuilder(object):
-  def __init__(self, input_dim, model, num_filters=32):
+
+class ResConvLSTMSeqTransducer(SeqTransducer, Serializable):
+  yaml_tag = u'!ResConvLSTMSeqTransducer'
+  def __init__(self, yaml_context, input_dim, num_filters=32):
+    register_handler(self)
+    model = yaml_context.dynet_param_collection.param_col
     if input_dim%num_filters!=0: raise RuntimeError("input_dim must be divisible by num_filters")
     self.input_dim = input_dim
 
     self.num_filters = num_filters
     self.freq_dim = input_dim / num_filters
     
-    self.convLstm1 = ConvLSTMBuilder(input_dim, model, num_filters, num_filters/2, input_transposed=False, reshape_output=False)
-    self.convLstm2 = ConvLSTMBuilder(input_dim, model, num_filters, num_filters/2, input_transposed=True, reshape_output=False)
+    self.convLstm1 = ConvLSTMSeqTransducer(yaml_context, input_dim, num_filters, num_filters/2, input_transposed=False, reshape_output=False)
+    self.convLstm2 = ConvLSTMSeqTransducer(yaml_context, input_dim, num_filters, num_filters/2, input_transposed=True, reshape_output=False)
     self.bn1 = BatchNorm(model, num_filters, 3)
     self.bn2 = BatchNorm(model, num_filters, 3)
     self.train = True
@@ -284,13 +355,17 @@ class ResConvLSTMBuilder(object):
     ret = ExpressionSequence(expr_tensor=res, mask=es.mask)
     assert len(es) == len(ret)
     return ret
+
+  @handle_xnmt_event
+  def on_set_train(self, val):
+    self.train = val
     
   
-class ConvLSTMBuilder(object):
+class ConvLSTMSeqTransducer(SeqTransducer):
   """
   This is a ConvLSTM implementation using a single bidirectional layer.
   """
-  def __init__(self, input_dim, model, chn_dim=3, num_filters=32, input_transposed=False, reshape_output=True):
+  def __init__(self, yaml_context, input_dim, chn_dim=3, num_filters=32, input_transposed=False, reshape_output=True):
     """
     :param input_dim: product of frequency and channel dimension
     :param model: DyNet parameter collection
@@ -302,6 +377,7 @@ class ConvLSTMBuilder(object):
              True -> output is an ExpressionSequence of dimensions (hidden_dim, sent_len, batch)
              False -> output is a tensor DyNet expression of dimensions (sent_len, freq, chn, batch)
     """
+    model = yaml_context.dynet_param_collection.param_col
     if input_dim%chn_dim!=0:
       raise RuntimeError("input_dim must be divisible by chn_dim")
     self.input_dim = input_dim
@@ -327,18 +403,8 @@ class ConvLSTMBuilder(object):
                                init=normalInit)
       self.params["b_" + direction] = \
           model.add_parameters(dim=(self.num_filters * 4,), init=normalInit)
-    
-  def whoami(self): return "ConvLSTMBuilder"
-  
-  def set_dropout(self, p):
-    if p>0.0: raise RuntimeError("ConvLSTMBuilder does not support dropout")
-  def disable_dropout(self):
-    pass
-  def initial_state(self):
-    return self
-  def add_inputs(self):
-    pass
-  def transduce(self, es, mask=None):
+
+  def __call__(self, es, mask=None):
     if self.input_transposed:
       es_expr = es
       sent_len = es.dim()[0][0]
@@ -405,7 +471,56 @@ class ConvLSTMBuilder(object):
       ret = dy.concatenate(ret_expr)
     return ret
 
-class NetworkInNetworkBiRNNBuilder(HierarchicalModel):
+
+class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
+  yaml_tag = u'!NetworkInNetworkBiLSTMTransducer'
+  
+  def __init__(self, yaml_context, input_dim, layers=1, hidden_dim=None, batch_norm=True, stride=1, 
+               nin_depth=1, nin_enabled=True, nonlinearity="relu", dropout=None, pre_activation=False, 
+               weight_noise=None, weight_norm=False):
+    register_handler(self)
+    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    self.dropout = dropout or yaml_context.dropout
+    self.weight_noise = weight_noise  or yaml_context.weight_noise
+    self.builder = NetworkInNetworkBiRNNBuilder(yaml_context=yaml_context, 
+                                                num_layers=layers,
+                                                input_dim=input_dim,
+                                                hidden_dim=hidden_dim,  
+                                                nin_depth=nin_depth,
+                                                nin_enabled=nin_enabled,
+                                                stride=stride,
+                                                use_bn=batch_norm,
+                                                nonlinearity=nonlinearity,
+                                                pre_activation=pre_activation, 
+                                                weight_norm=weight_norm)
+    self.register_hier_child(self.builder)
+                                                          
+  @handle_xnmt_event
+  def on_set_train(self, val):
+    self.builder.set_dropout(self.dropout if val else 0.0)
+    if self.weight_noise > 0.0:
+      self.builder.set_weight_noise(self.weight_noise if val else 0.0)
+
+  @handle_xnmt_event
+  def on_start_sent(self, *args, **kwargs):
+    self._final_states = None
+
+  def __call__(self, sent):
+    output = self.builder.transduce(sent)
+    if not isinstance(output, ExpressionSequence):
+      output = ExpressionSequence(expr_list=output)
+    if hasattr(self.builder, "get_final_states"):
+      self._final_states = self.builder.get_final_states()
+    else:
+      self._final_states = [FinalTransducerState(output[-1])]
+    return output
+
+  def get_final_states(self):
+    assert self._final_states is not None, "LSTMSeqTransducer.__call__() must be invoked before LSTMSeqTransducer.get_final_states()"
+    return self._final_states
+
+
+class NetworkInNetworkBiRNNBuilder(object):
   """
   Builder for NiN-interleaved RNNs that delegates to regular RNNs and wires them together.
   See http://iamaaditya.github.io/2016/03/one-by-one-convolution/
@@ -494,10 +609,6 @@ class NetworkInNetworkBiRNNBuilder(HierarchicalModel):
       for nin in l:
         self.register_hier_child(nin)
         
-  @recursive
-  def set_train(self, val):
-    pass
-
   def set_dropout(self, p):
     for (fb, bb) in self.builder_layers:
       fb.set_dropout(p)

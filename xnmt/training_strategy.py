@@ -4,7 +4,6 @@ import six
 import dynet as dy
 import numpy as np
 
-from xnmt.hier_model import HierarchicalModel
 from xnmt.loss import LossBuilder
 from xnmt.serializer import Serializable
 from xnmt.vocab import Vocab
@@ -13,7 +12,7 @@ import xnmt.evaluator
 import xnmt.linear as linear
 
 
-class TrainingStrategy(Serializable, HierarchicalModel):
+class TrainingStrategy(Serializable):
   '''
   A template class implementing the training strategy and corresponding loss calculation.
   '''
@@ -24,8 +23,6 @@ class TrainingStrategy(Serializable, HierarchicalModel):
       self.loss_calculator = TrainingMLELoss()
     else:
       self.loss_calculator = loss_calculator
-
-    self.register_hier_child(self.loss_calculator)
 
   def __call__(self, translator, dec_state, src, trg):
       return self.loss_calculator(translator, dec_state, src, trg)
@@ -56,7 +53,7 @@ class TrainingMLELoss(Serializable):
 
     return dy.esum(losses)
 
-class TrainingReinforceLoss(Serializable, HierarchicalModel):
+class TrainingReinforceLoss(Serializable):
   yaml_tag = '!TrainingReinforceLoss'
 
   def __init__(self, yaml_context, evaluation_metric=None, sample_length=50, use_baseline=False, decoder_hidden_dim=None):
@@ -80,14 +77,14 @@ class TrainingReinforceLoss(Serializable, HierarchicalModel):
     for _ in range(self.sample_length):
       dec_state.context = translator.attender.calc_context(dec_state.rnn_state.output())
       if self.use_baseline:
-        h_t = dy.tanh(
-          translator.decoder.context_projector(dy.concatenate([dec_state.rnn_state.output(), dec_state.context])))
+        h_t = dy.tanh(translator.decoder.context_projector(dy.concatenate([dec_state.rnn_state.output(), dec_state.context])))
         self.bs.append(self.baseline(dy.nobackprop(h_t)))
       logsoft = dy.log_softmax(translator.decoder.get_scores(dec_state))
       sample = logsoft.tensor_value().categorical_sample_log_prob().as_numpy()[0]
       # Keep track of previously sampled EOS
       sample = [sample_i if not done_i else Vocab.ES for sample_i, done_i in zip(sample, done)]
       # Appending and feeding in the decoder
+      logsoft = dy.pick_batch(logsoft, sample)
       logsofts.append(logsoft)
       samples.append(sample)
       dec_state = translator.decoder.add_input(dec_state, translator.trg_embedder.embed(xnmt.batcher.mark_as_batch(sample)))
@@ -113,8 +110,7 @@ class TrainingReinforceLoss(Serializable, HierarchicalModel):
       # Calculate the evaluation score
       score = 0 if not len(sample_i) else self.evaluation_metric.evaluate_fast(trg_i.words, sample_i)
       self.eval_score.append(score)
-      self.true_score = dy.inputTensor(self.eval_score, batched=True)
-
+    self.true_score = dy.inputTensor(self.eval_score, batched=True)
     loss = LossBuilder()
 
     if self.use_baseline:
@@ -129,7 +125,7 @@ class TrainingReinforceLoss(Serializable, HierarchicalModel):
       baseline_loss = []
       for bs in self.bs:
         baseline_loss.append(dy.squared_distance(self.true_score, bs))
-      loss.add_loss("Baseline", dy.sum_batches(dy.esum(baseline_loss)))
+      loss.add_loss("Baseline", dy.sum_elems(dy.esum(baseline_loss)))
     return loss
 
 # To be implemented

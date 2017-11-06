@@ -3,7 +3,8 @@ import dynet as dy
 from xnmt.batcher import Mask
 from xnmt.expression_sequence import ExpressionSequence
 from xnmt.batch_norm import BatchNorm
-from xnmt.hier_model import HierarchicalModel, recursive
+from xnmt.transducer import Transducer, SeqTransducer
+from xnmt.events import register_handler, handle_xnmt_event
 
 class WeightNoise(object):
   def __init__(self, std):
@@ -19,7 +20,7 @@ class WeightNoise(object):
       p_expr = dy.noise(p_expr, self.std)
     return p_expr
     
-class ResidualConnection(object):
+class ResidualTransducer(Transducer):
   """
   Adds a residual connection.
   
@@ -74,7 +75,7 @@ class TimePadder(object):
       raise NotImplementedError("tensor padding not implemented yet")
       
 
-class NiNLayer(HierarchicalModel):
+class NiNLayer(SeqTransducer):
   def __init__(self, yaml_context, input_dim, hidden_dim, use_proj=True,
                use_bn=True, nonlinearity="relu", downsampling_factor=1):
     self.input_dim = input_dim
@@ -99,6 +100,7 @@ class NiNLayer(HierarchicalModel):
               if use_proj: dimensions = hidden x ceil(time/downsampling_factor)
               else:        dimensions = (input_dim*downsampling_factor) x ceil(time/downsampling_factor)
     """
+    register_handler(self)
     assert not es.tensor_transposed
     if not es.dim()[0][0] == self.input_dim:
       raise ValueError("This NiN Layer requires inputs of hidden dim %s, got %s." % (self.input_dim, es.dim()[0][0]))
@@ -150,8 +152,8 @@ class NiNLayer(HierarchicalModel):
     else:
       raise RuntimeError("unknown nonlinearity %s" % nonlinearity)
   
-  @recursive
-  def set_train(self, val):
+  @handle_xnmt_event
+  def on_set_train(self, val):
     self.train = val
 
 

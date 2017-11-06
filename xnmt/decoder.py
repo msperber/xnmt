@@ -1,12 +1,10 @@
 import dynet as dy
 from xnmt.serializer import Serializable
 import xnmt.batcher
-from xnmt.hier_model import HierarchicalModel, recursive
-import xnmt.linear
+from xnmt.events import register_handler, handle_xnmt_event
 from xnmt.nn import Linear
-import xnmt.transformer
 
-class Decoder(HierarchicalModel):
+class Decoder(object):
   '''
   A template class to convert a prefix of previously generated words and
   a context vector into a probability distribution over possible next words.
@@ -47,6 +45,7 @@ class MlpSoftmaxDecoder(RnnDecoder, Serializable):
                mlp_hidden_dim=None, trg_embed_dim=None, dropout=None,
                rnn_spec="lstm", residual_to_output=False, input_feeding=True,
                bridge=None, fix_context_norm=None):
+    register_handler(self)
     param_col = yaml_context.dynet_param_collection.param_col
     self.fix_context_norm = fix_context_norm
     # Define dim
@@ -73,10 +72,10 @@ class MlpSoftmaxDecoder(RnnDecoder, Serializable):
                                               model = param_col,
                                               residual_to_output = residual_to_output)
     # MLP
-    self.context_projector = xnmt.linear.Linear(input_dim  = input_dim + lstm_dim,
+    self.context_projector = Linear(input_dim  = input_dim + lstm_dim,
                                            output_dim = mlp_hidden_dim,
                                            model = param_col)
-    self.vocab_projector = xnmt.linear.Linear(input_dim = mlp_hidden_dim,
+    self.vocab_projector = Linear(input_dim = mlp_hidden_dim,
                                          output_dim = vocab_size,
                                          model = param_col)
     # Dropout
@@ -133,8 +132,8 @@ class MlpSoftmaxDecoder(RnnDecoder, Serializable):
     else:
       return dy.pickneglogsoftmax_batch(scores, ref_action)
 
-  @recursive
-  def set_train(self, val):
+  @handle_xnmt_event
+  def on_set_train(self, val):
     self.fwd_lstm.set_dropout(self.dropout if val else 0.0)
 
 class Bridge(object):
@@ -188,7 +187,7 @@ class LinearBridge(Bridge, Serializable):
     self.dec_layers = dec_layers
     self.enc_dim = enc_dim or yaml_context.default_layer_dim
     self.dec_dim = dec_dim or yaml_context.default_layer_dim
-    self.projector = xnmt.linear.Linear(input_dim  = enc_dim,
+    self.projector = Linear(input_dim  = enc_dim,
                                            output_dim = dec_dim,
                                            model = param_col)
   def decoder_init(self, enc_final_states):

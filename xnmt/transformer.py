@@ -3,6 +3,10 @@ import math
 import numpy as np
 from xnmt.expression_sequence import ExpressionSequence
 from xnmt.nn import LayerNorm, Linear, PositionwiseFeedForward, TimeDistributed, PositionwiseLinear
+from xnmt.transducer import SeqTransducer, FinalTransducerState
+from xnmt.serializer import Serializable
+from xnmt.events import register_handler, handle_xnmt_event
+
 
 MAX_SIZE = 5000
 MIN_VAL = -10000   # This value is close to NEG INFINITY
@@ -163,6 +167,41 @@ class TransformerEncoderLayer(object):
       out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
     
     return ExpressionSequence(out_list, mask=out_mask)
+
+
+
+class TransformerSeqTransducer(SeqTransducer, Serializable):
+  yaml_tag = u'!TransformerSeqTransducer'
+
+  def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=512, 
+               head_count=8, ff_hidden_dim=2048, dropout=None, 
+               downsample_factor=1, diagonal_mask_width=None, mask_self=False):
+    register_handler(self)
+    param_col = yaml_context.dynet_param_collection.param_col
+    self.input_dim = input_dim
+    self.hidden_dim = hidden_dim
+    self.dropout = dropout or yaml_context.dropout
+    self.layers = layers
+    self.modules = []
+    for layer_i in range(layers):
+      self.modules.append(TransformerEncoderLayer(hidden_dim, param_col, 
+                                                  downsample_factor=downsample_factor, 
+                                                  input_dim=input_dim if layer_i==0 else hidden_dim,
+                                                  head_count=head_count, ff_hidden_dim=ff_hidden_dim,
+                                                  diagonal_mask_width=diagonal_mask_width,
+                                                  mask_self=mask_self))
+
+  def transduce(self, sent):
+    for module in self.modules:
+      enc_sent = module.transduce(sent)
+      sent = enc_sent
+    self._final_states = [FinalTransducerState(sent[-1])]
+    return sent
+
+  @handle_xnmt_event
+  def on_set_train(self, val):
+    for module in self.modules:
+      module.set_dropout(self.dropout if val else 0.0)
 
 
 

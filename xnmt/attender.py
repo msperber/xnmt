@@ -1,6 +1,6 @@
 import dynet as dy
 from xnmt.serializer import Serializable
-from xnmt.hier_model import HierarchicalModel, recursive
+from xnmt.events import register_handler, handle_xnmt_event
 
 class Attender(object):
   '''
@@ -20,7 +20,7 @@ class Attender(object):
     raise NotImplementedError('calc_attention must be implemented for Attender subclasses')
 
 
-class StandardAttender(Attender, Serializable, HierarchicalModel):
+class StandardAttender(Attender, Serializable):
   '''
   Implements the attention model of Bahdanau et. al (2014)
   '''
@@ -29,6 +29,7 @@ class StandardAttender(Attender, Serializable, HierarchicalModel):
 
   def __init__(self, yaml_context, input_dim=None, state_dim=None, hidden_dim=None,
                dropout=None, dropout_scores=False):
+    register_handler(self)
     input_dim = input_dim or yaml_context.default_layer_dim
     state_dim = state_dim or yaml_context.default_layer_dim
     hidden_dim = hidden_dim or yaml_context.default_layer_dim
@@ -82,8 +83,8 @@ class StandardAttender(Attender, Serializable, HierarchicalModel):
       context = dy.dropout(context, self.dropout)
     return context
   
-  @recursive
-  def set_train(self, val):
+  @handle_xnmt_event
+  def on_set_train(self, val):
     self.train = val
 
 

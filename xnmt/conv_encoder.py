@@ -1,16 +1,20 @@
 import math
-import numpy as np
 import dynet as dy
 from xnmt.batch_norm import BatchNorm
 from xnmt.expression_sequence import ExpressionSequence
 from xnmt.nn import WeightNoise
+from xnmt.events import register_handler, handle_xnmt_event
+from xnmt.transducer import Transducer, SeqTransducer
+from xnmt.serializer import Serializable
 
-class StridedConvEncBuilder(object):
+
+class StridedConvSeqTransducer(SeqTransducer, Serializable):
   """
   Implements several (possibly strided) CNN layers. No padding is performed, thus layer size will shrink even with striding turned off.
   """
+  yaml_tag = u'!StridedConvSeqTransducer'
     
-  def __init__(self, param_col, init_gauss_var=0.1, weight_noise=0.0,
+  def __init__(self, yaml_context, init_gauss_var=0.1, weight_noise=0.0,
                layers=1, input_dim=120, chn_dim=3, num_filters=32, stride=(2,2), 
                batch_norm=False, nonlinearity="relu", pre_activation=False,
                output_tensor=False, transpose=True):
@@ -30,10 +34,12 @@ class StridedConvEncBuilder(object):
     :param output_transposed_tensor: True -> output is a expression sequence holding a 3d-tensor (including channel dimension), in transposed form (time is first dimension)
                                      False -> output is a expression sequence holding a list of flat vector expressions (frequency and channel dimensions are merged)
     """
+    register_handler(self)
     assert layers > 0
     if input_dim % chn_dim != 0:
       raise ValueError("StridedConvEncoder requires input_dim mod chn_dim == 0, got: %s and %s" % (input_dim, chn_dim))
     
+    param_col = yaml_context.dynet_param_collection.param_col
     self.layers = layers
     self.chn_dim = chn_dim
     self.freq_dim = input_dim / chn_dim
@@ -63,6 +69,10 @@ class StridedConvEncBuilder(object):
         self.bn_layers.append(BatchNorm(param_col, (self.chn_dim if self.pre_activation else self.num_filters) * (2 if nonlinearity=="maxout" else 1), 3))
       self.filters_layers.append(filters)
   
+  @handle_xnmt_event
+  def on_set_train(self, val):
+    self.train = val
+
   def get_output_dim(self):
     conv_dim = self.freq_dim
     for layer_i in range(self.layers):
@@ -100,7 +110,7 @@ class StridedConvEncBuilder(object):
       raise RuntimeError("unknown nonlinearity: %s" % nonlinearity)
     return expr
     
-  def transduce(self, es):
+  def __call__(self, es):
     es_expr = es.as_tensor()
     if not es.tensor_transposed:
       es_expr = dy.transpose(es_expr, [1,0])
@@ -146,14 +156,13 @@ class StridedConvEncBuilder(object):
       return ExpressionSequence(expr_list=es_list, mask=mask_out)
 
 
-
-class PoolingConvEncBuilder(object):
-  # TODO: buggy, needs proper transposing
+class PoolingConvSeqTransducer(SeqTransducer, Serializable):
   """
   Implements several CNN layers, with strided max pooling interspersed.
   """
+  yaml_tag = u'!PoolingConvSeqTransducer'
   
-  def __init__(self, input_dim, model, pooling=[None, (1,1)], chn_dim=3, num_filters=32, 
+  def __init__(self, yaml_context, input_dim, pooling=[None, (1,1)], chn_dim=3, num_filters=32, 
                output_tensor=False, nonlinearity="relu", init_gauss_var=0.1):
     """
     :param layers: encoder depth
@@ -165,8 +174,10 @@ class PoolingConvEncBuilder(object):
     :param output_tensor: if set, the output is directly given as a 3d-tensor, rather than converted to a list of vector expressions
     :param nonlinearity: "rely" / "maxout" / None
     """
+    raise Exception("TODO: buggy, needs proper transposing")
     assert input_dim % chn_dim == 0
     
+    model = yaml_context.dynet_param_collection.param_col
     self.layers = len(pooling)
     assert self.layers > 0
     self.chn_dim = chn_dim
@@ -216,14 +227,7 @@ class PoolingConvEncBuilder(object):
       conv_dim = int(math.ceil(float(conv_dim - self.filter_size_time + 1) / float(self.get_stride_for_layer(layer_i)[0])))
     return conv_dim
 
-  def whoami(self): return "PoolingConvEncBuilder"
-
-  def set_dropout(self, p):
-    if p>0.0: raise NotImplementedError("PoolingConvEncBuilder does not support dropout")
-  def disable_dropout(self):
-    pass
-
-  def transduce(self, es):
+  def __call__(self, es):
     es_expr = es.as_tensor()
 
     sent_len = es_expr.dim()[0][0]
@@ -274,7 +278,7 @@ class PoolingConvEncBuilder(object):
       es_list = [cnn_out[i] for i in range(cnn_out.dim()[0][0])]
       return ExpressionSequence(list_expr=es_list, mask=mask_out)
 
-class ConvStride(object):
+class ConvStrideTransducer(Transducer):
   def __init__(self, chn_dim, stride=(1,1), margin=(0,0)):
     self.chn_dim = chn_dim
     self.stride = stride
