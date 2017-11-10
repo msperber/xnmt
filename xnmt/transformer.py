@@ -89,7 +89,7 @@ class MultiHeadedAttention(object):
       scaled += mask_expr
 
     # Computing Softmax here.
-    attn = dy.softmax_rows(scaled)
+    attn = dy.softmax(scaled, d=1)
 
     # Applying dropout to attention
     drop_attn = dy.dropout(attn, p)
@@ -191,7 +191,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   diagonal_mask_width=diagonal_mask_width,
                                                   mask_self=mask_self))
 
-  def transduce(self, sent):
+  def __call__(self, sent):
     for module in self.modules:
       enc_sent = module.transduce(sent)
       sent = enc_sent

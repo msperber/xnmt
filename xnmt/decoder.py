@@ -92,7 +92,7 @@ class MlpSoftmaxDecoder(RnnDecoder, Serializable):
     :returns: An MlpSoftmaxDecoderState
     """
     rnn_state = self.fwd_lstm.initial_state()
-    rnn_state = rnn_state.set_s(self.bridge.decoder_init(enc_final_states))
+    rnn_state = rnn_state.set_s(self.bridge.decoder_init(enc_final_states, batch_size=ss_expr.dim()[1]))
     zeros = dy.zeros(self.input_dim) if self.input_feeding else None
     rnn_state = rnn_state.add_input(dy.concatenate([ss_expr, zeros]))
     return MlpSoftmaxDecoderState(rnn_state=rnn_state, context=zeros)
@@ -151,8 +151,7 @@ class NoBridge(Bridge, Serializable):
   def __init__(self, yaml_context, dec_layers, dec_dim = None):
     self.dec_layers = dec_layers
     self.dec_dim = dec_dim or yaml_context.default_layer_dim
-  def decoder_init(self, enc_final_states):
-    batch_size = enc_final_states[0].main_expr().dim()[1]
+  def decoder_init(self, enc_final_states, batch_size):
     z = dy.zeros(self.dec_dim, batch_size)
     return [z] * (self.dec_layers * 2)
 
@@ -167,7 +166,7 @@ class CopyBridge(Bridge, Serializable):
   def __init__(self, yaml_context, dec_layers, dec_dim = None):
     self.dec_layers = dec_layers
     self.dec_dim = dec_dim or yaml_context.default_layer_dim
-  def decoder_init(self, enc_final_states):
+  def decoder_init(self, enc_final_states, batch_size):
     if self.dec_layers > len(enc_final_states):
       raise RuntimeError("CopyBridge requires dec_layers <= len(enc_final_states), but got %s and %s" % (self.dec_layers, len(enc_final_states)))
     if enc_final_states[-1].main_expr().dim()[0][0] != self.dec_dim:
@@ -190,7 +189,7 @@ class LinearBridge(Bridge, Serializable):
     self.projector = Linear(input_dim  = enc_dim,
                                            output_dim = dec_dim,
                                            model = param_col)
-  def decoder_init(self, enc_final_states):
+  def decoder_init(self, enc_final_states, batch_size):
     if self.dec_layers > len(enc_final_states):
       raise RuntimeError("LinearBridge requires dec_layers <= len(enc_final_states), but got %s and %s" % (self.dec_layers, len(enc_final_states)))
     if enc_final_states[0].main_expr().dim()[0][0] != self.enc_dim:

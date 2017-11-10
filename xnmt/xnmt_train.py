@@ -23,6 +23,7 @@ import xnmt.residual
 from xnmt.specialized_encoders import *
 from xnmt.decoder import *
 from xnmt.translator import *
+from xnmt.transformer import *
 from xnmt.retriever import *
 from xnmt.serialize_container import *
 from xnmt.training_corpus import *
@@ -250,6 +251,8 @@ class XnmtTrainer(object):
       if update_weights:
         loss_value.backward()
         self.trainer.update()
+
+      dy.print_text_graphviz()
 
       # Devel reporting
       self.logger.report_train_process()
