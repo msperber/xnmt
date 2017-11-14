@@ -2,8 +2,8 @@ import numpy as np
 import os
 import io
 import six
+import ast
 from collections import defaultdict
-from six.moves import zip_longest, map
 from xnmt.serializer import Serializable
 from xnmt.vocab import *
 ###### Classes representing single inputs
@@ -39,7 +39,7 @@ class SimpleSentenceInput(Input):
       return self
     new_words = list(self.words)
     new_words.extend([token] * pad_len)
-    return SimpleSentenceInput(new_words)
+    return self.__class__(new_words)
 
   def __str__(self):
     return " ".join(six.moves.map(str, self.words))
@@ -47,10 +47,15 @@ class SimpleSentenceInput(Input):
 class SentenceInput(SimpleSentenceInput):
   def __init__(self, words):
     super(SentenceInput, self).__init__(words)
-    self.annotation = []
+    self.annotation = {}
 
   def annotate(self, key, value):
-    self.__dict__[key] = value
+    self.annotation[key] = value
+
+  def get_padded_sent(self, token, pad_len):
+    sent = super(SentenceInput, self).get_padded_sent(token, pad_len)
+    sent.annotation = self.annotation
+    return sent
 
 class ArrayInput(Input):
   """
@@ -98,11 +103,11 @@ class InputReader(object):
 
 class BaseTextReader(InputReader):
   def count_sents(self, filename):
-    i = 0
-    with io.open(filename, encoding='utf-8') as f:
-      for _ in f:
-        i+=1
-    return i
+    f = io.open(filename, encoding='utf-8')
+    try:
+      return sum(1 for _ in f)
+    finally:
+      f.close()
 
   def iterate_filtered(self, filename, filter_ids=None):
     """
@@ -138,7 +143,7 @@ class PlainTextReader(BaseTextReader, Serializable):
   def read_sents(self, filename, filter_ids=None):
     if self.vocab is None:
       self.vocab = Vocab()
-    return map(lambda l: SimpleSentenceInput([self.vocab.convert(word) for word in l.strip().split()] + \
+    return six.moves.map(lambda l: SimpleSentenceInput([self.vocab.convert(word) for word in l.strip().split()] + \
                                                       [self.vocab.convert(Vocab.ES_STR)]),
                self.iterate_filtered(filename, filter_ids))
 
@@ -149,6 +154,42 @@ class PlainTextReader(BaseTextReader, Serializable):
 
   def vocab_size(self):
     return len(self.vocab)
+
+class SegmentationTextReader(PlainTextReader):
+  yaml_tag = u'!SegmentationTextReader'
+
+  def read_sents(self, filename, filter_ids=None):
+    if self.vocab is None:
+      self.vocab = Vocab()
+    def convert(line, segmentation):
+      line = line.strip().split()
+      ret = SentenceInput(list(six.moves.map(self.vocab.convert, line)) + [self.vocab.convert(Vocab.ES_STR)])
+      ret.annotate("segment", list(six.moves.map(int, segmentation.strip().split())))
+      return ret
+
+    if type(filename) != list:
+      try:
+        filename = ast.literal_eval(filename)
+      except:
+        print("Reading %s with a PlainTextReader instead..." % filename)
+        return super(SegmentationTextReader, self).read_sents(filename)
+
+    max_id = None
+    if filter_ids is not None:
+      max_id = max(filter_ids)
+      filter_ids = set(filter_ids)
+    data = []
+    with io.open(filename[0], encoding='utf-8') as char_inp,\
+         io.open(filename[1], encoding='utf-8') as seg_inp:
+      for sent_count, (char_line, seg_line) in enumerate(zip(char_inp, seg_inp)):
+        if filter_ids is None or sent_count in filter_ids:
+          data.append(convert(char_line, seg_line))
+        if max_id is not None and sent_count > max_id:
+          break
+    return data
+
+  def count_sents(self, filename):
+    return super(SegmentationTextReader, self).count_sents(filename[0])
 
 class ContVecReader(InputReader, Serializable):
   """
@@ -220,10 +261,20 @@ class IDReader(BaseTextReader, Serializable):
 
 ###### CorpusParser
 
-class CorpusParser:
+class CorpusParser(object):
   """A class that can read in corpora for training and testing"""
+  
+  def __init__(self):
+    """
+    After __init__, the vocabularies must be available because they will be needed to
+    initialize other components (in particular, embedders). Currently this is done by
+    calling _read_train_corpus here, but when a vocab is prespecified the data could also
+    be loaded in a lazy fashion (would be useful to avoid loading training data when we
+    only want to do inference; TODO)
+    """
+    pass
 
-  def read_training_corpus(self, training_corpus):
+  def _read_training_corpus(self, training_corpus):
     """Read in the training corpus"""
     raise RuntimeError("CorpusParsers must implement read_training_corpus to read in the training/dev corpora")
 
@@ -232,8 +283,9 @@ class BilingualCorpusParser(CorpusParser, Serializable):
   """A class that reads in bilingual corpora, consists of two InputReaders"""
 
   yaml_tag = u"!BilingualCorpusParser"
-  def __init__(self, src_reader, trg_reader, max_src_len=None, max_trg_len=None,
-               max_num_train_sents=None, max_num_dev_sents=None, sample_train_sents=None):
+  def __init__(self, training_corpus, src_reader, trg_reader, max_src_len=None, max_trg_len=None,
+               max_num_train_sents=None, max_num_dev_sents=None, sample_train_sents=None,
+               lazy_read=False):
     """
     :param src_reader: InputReader for source side
     :param trg_reader: InputReader for target side
@@ -242,7 +294,9 @@ class BilingualCorpusParser(CorpusParser, Serializable):
     :param max_num_train_sents: only read the first n training sentences
     :param max_num_dev_sents: only read the first n dev sentences
     :param sample_train_sents: sample n sentences without replacement from the training corpus (should probably be used with a prespecified vocab)
+    :param lazy_read: if True we don't read the training corpus upon initialization (requires the input reader vocabs being prespecified)
     """
+    self.training_corpus = training_corpus
     self.src_reader = src_reader
     self.trg_reader = trg_reader
     self.max_src_len = max_src_len
@@ -253,8 +307,10 @@ class BilingualCorpusParser(CorpusParser, Serializable):
     self.train_src_len, self.train_trg_len = None, None
     self.dev_src_len, self.dev_trg_len = None, None
     if max_num_train_sents is not None and sample_train_sents is not None: raise RuntimeError("max_num_train_sents and sample_train_sents are mutually exclusive!")
+    if not lazy_read:
+      self._read_training_corpus(self.training_corpus)
 
-  def read_training_corpus(self, training_corpus):
+  def _read_training_corpus(self, training_corpus):
     training_corpus.train_src_data = []
     training_corpus.train_trg_data = []
     if self.sample_train_sents:
