@@ -13,7 +13,7 @@ MIN_VAL = -10000   # This value is close to NEG INFINITY
 
 
 class MultiHeadedAttention(object):
-  def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None):
+  def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, is_self_att=False):
     if input_dim is None: input_dim = model_dim
     self.input_dim = input_dim
     assert model_dim % head_count == 0
@@ -22,15 +22,16 @@ class MultiHeadedAttention(object):
     self.head_count = head_count
     assert downsample_factor >= 1
     self.downsample_factor = downsample_factor
-
-    # Linear Projection of keys
-    self.linear_keys = Linear(input_dim, head_count * self.dim_per_head, model)
-
-    # Linear Projection of values
-    self.linear_values = Linear(input_dim, head_count * self.dim_per_head, model)
-
-    # Linear Projection of query
-    self.linear_query = Linear(input_dim, head_count * self.dim_per_head, model)
+    
+    self.is_self_att = is_self_att
+    
+    if is_self_att:
+      self.linear_kvq = Linear(input_dim, head_count * self.dim_per_head * 3, model)
+      
+    else:
+      self.linear_keys = Linear(input_dim, head_count * self.dim_per_head, model)
+      self.linear_values = Linear(input_dim, head_count * self.dim_per_head, model)
+      self.linear_query = Linear(input_dim, head_count * self.dim_per_head, model)
 
     # Layer Norm Module
     self.layer_norm = LayerNorm(model_dim, model)
@@ -46,6 +47,7 @@ class MultiHeadedAttention(object):
     :param batch_mask: numpy array of dimensions (batch, time)
     :param p: dropout prob
     """
+    if value is None or query is None: assert self.is_self_att
     sent_len = key.dim()[0][1]
 #    hidden_dim = key.dim()[0][0]
     if self.downsample_factor > 1:
@@ -71,14 +73,15 @@ class MultiHeadedAttention(object):
 
     # Concatenate all the words together for doing vectorized affine transform
     # TODO: can we collapse these into one linear + shape projection, then apply select_range ?
-    key_time_distr = TimeDistributed()(key)
-    if value is None: value_time_distr = key_time_distr
-    else: value_time_distr = TimeDistributed()(value)
-    if query is None: query_time_distr = key_time_distr
-    else: query_time_distr = TimeDistributed()(query)
-    key_up = shape_projection(self.linear_keys(key_time_distr)) 
-    value_up = shape_projection(self.linear_values(value_time_distr))
-    query_up = shape_projection(self.linear_query(query_time_distr))
+    if self.is_self_att:
+      kvq_lin = self.linear_kvq(TimeDistributed()(key))
+      key_up = shape_projection(dy.pick_range(kvq_lin, 0, self.head_count * self.dim_per_head)) 
+      value_up = shape_projection(dy.pick_range(kvq_lin, self.head_count * self.dim_per_head, 2 * self.head_count * self.dim_per_head))
+      query_up = shape_projection(dy.pick_range(kvq_lin, 2 * self.head_count * self.dim_per_head, 3 * self.head_count * self.dim_per_head))
+    else:
+      key_up = shape_projection(self.linear_keys(TimeDistributed()(key))) 
+      value_up = shape_projection(self.linear_values(TimeDistributed()(value)))
+      query_up = shape_projection(self.linear_query(TimeDistributed()(query)))
 
     scaled = query_up * dy.transpose(key_up) # ((T,dim_per_head),head_count*batchsize) * ((dim_per_head,T),head_count*batchsize)
     scaled = scaled / math.sqrt(self.dim_per_head)
@@ -122,7 +125,7 @@ class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
                input_dim=None, diagonal_mask_width=None, mask_self=False):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
-                                          input_dim=input_dim)
+                                          input_dim=input_dim, is_self_att=True)
     self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model)  # Feed Forward
     self.head_count = head_count
     self.downsample_factor = downsample_factor
