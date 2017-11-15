@@ -40,20 +40,21 @@ class MultiHeadedAttention(object):
   def __call__(self, key, value, query, att_mask, batch_mask, p):
     """
     :param key: DyNet expression of dimensions (input_dim, time) x batch
-    :param value: DyNet expression of dimensions (input_dim, time) x batch
-    :param query: DyNet expression of dimensions (input_dim, time) x batch
+    :param value: DyNet expression of dimensions (input_dim, time) x batch (None for using value = key)
+    :param query: DyNet expression of dimensions (input_dim, time) x batch (None for using query = key)
     :param att_mask: numpy array of dimensions (time, time); pre-transposed
     :param batch_mask: numpy array of dimensions (batch, time)
     :param p: dropout prob
     """
     sent_len = key.dim()[0][1]
-    hidden_dim = key.dim()[0][0]
+#    hidden_dim = key.dim()[0][0]
     if self.downsample_factor > 1:
-      strided_query = ExpressionSequence(expr_tensor=dy.strided_select(query.as_tensor(), [1,self.downsample_factor], [], []))
+      query_tensor = query.as_tensor() if query else key.as_tensor()
+      strided_query = ExpressionSequence(expr_tensor=dy.strided_select(query_tensor, [1,self.downsample_factor], [], []))
       residual = TimeDistributed()(strided_query)
       sent_len_out = len(strided_query)
     else:
-      residual = TimeDistributed()(query)
+      residual = TimeDistributed()(query or key)
       sent_len_out = sent_len
     if self.model_dim!=self.input_dim:
       residual = self.res_shortcut(residual)
@@ -69,14 +70,20 @@ class MultiHeadedAttention(object):
       return dy.reshape(temp, (seq_len, self.dim_per_head), batch_size=batch_size * self.head_count)
 
     # Concatenate all the words together for doing vectorized affine transform
-    key_up = shape_projection(self.linear_keys(TimeDistributed()(key)))
-    value_up = shape_projection(self.linear_values(TimeDistributed()(value)))
-    query_up = shape_projection(self.linear_query(TimeDistributed()(query)))
+    # TODO: can we collapse these into one linear + shape projection, then apply select_range ?
+    key_time_distr = TimeDistributed()(key)
+    if value is None: value_time_distr = key_time_distr
+    else: value_time_distr = TimeDistributed()(value)
+    if query is None: query_time_distr = key_time_distr
+    else: query_time_distr = TimeDistributed()(query)
+    key_up = shape_projection(self.linear_keys(key_time_distr)) 
+    value_up = shape_projection(self.linear_values(value_time_distr))
+    query_up = shape_projection(self.linear_query(query_time_distr))
 
-    scaled = query_up * dy.transpose(key_up)
+    scaled = query_up * dy.transpose(key_up) # ((T,dim_per_head),head_count*batchsize) * ((dim_per_head,T),head_count*batchsize)
     scaled = scaled / math.sqrt(self.dim_per_head)
 
-    # Apply Mask here
+    # Apply Mask here # TODO: try if speed improves considerably when commenting out the masking
     if att_mask is not None:
       scaled += dy.inputTensor(att_mask * -100.0)
     if batch_mask is not None:
@@ -109,14 +116,6 @@ class MultiHeadedAttention(object):
     res = dy.dropout(out, p) + residual
     ret = self.layer_norm(res)
     return ret
-
-
-def expr_to_sequence(expr_, seq_len, batch_size):
-  out_list = []
-  for i in range(seq_len):
-    indexes = map(lambda x: x + i, range(0, seq_len * batch_size, seq_len))
-    out_list.append(dy.pick_batch_elems(expr_, indexes))
-  return out_list
 
 
 class TransformerEncoderLayer(object):
@@ -154,19 +153,16 @@ class TransformerEncoderLayer(object):
             att_mask[i,i] = 1.0
       
         
-    mid = self.self_attn(key=x, value=x, query=x, att_mask=att_mask, batch_mask=x.mask.np_arr if x.mask else None, p=self.dropout)
+    mid = self.self_attn(key=x, value=None, query=None, att_mask=att_mask, batch_mask=x.mask.np_arr if x.mask else None, p=self.dropout)
     if self.downsample_factor > 1:
       seq_len = int(math.ceil(seq_len / float(self.downsample_factor)))
     out = self.feed_forward(mid, p=self.dropout)
 
-#    assert (np.isnan(out.npvalue()).any() == False)  # Check for Nan
-    out_list = expr_to_sequence(out, seq_len, batch_size)
-    
     out_mask = x.mask
     if self.downsample_factor > 1 and out_mask is not None:
       out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
     
-    return ExpressionSequence(out_list, mask=out_mask)
+    return ExpressionSequence(expr_tensor=dy.reshape(out, (out.dim()[0][0], seq_len), batch_size=batch_size), mask=out_mask)
 
 
 
