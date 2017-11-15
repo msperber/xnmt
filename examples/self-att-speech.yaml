@@ -28,6 +28,7 @@ speech-2layers:
         downsample_factor: 2
         diagonal_mask_width: 3
         mask_self: True
+        ignore_masks: True
       attender: !MlpAttender
         state_dim: 64
         hidden_dim: 64

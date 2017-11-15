@@ -13,7 +13,7 @@ MIN_VAL = -10000   # This value is close to NEG INFINITY
 
 
 class MultiHeadedAttention(object):
-  def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, is_self_att=False):
+  def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, is_self_att=False, ignore_masks=False):
     if input_dim is None: input_dim = model_dim
     self.input_dim = input_dim
     assert model_dim % head_count == 0
@@ -22,6 +22,8 @@ class MultiHeadedAttention(object):
     self.head_count = head_count
     assert downsample_factor >= 1
     self.downsample_factor = downsample_factor
+    
+    self.ignore_masks = ignore_masks
     
     self.is_self_att = is_self_att
     
@@ -72,7 +74,6 @@ class MultiHeadedAttention(object):
       return dy.reshape(temp, (seq_len, self.dim_per_head), batch_size=batch_size * self.head_count)
 
     # Concatenate all the words together for doing vectorized affine transform
-    # TODO: can we collapse these into one linear + shape projection, then apply select_range ?
     if self.is_self_att:
       kvq_lin = self.linear_kvq(TimeDistributed()(key))
       key_up = shape_projection(dy.pick_range(kvq_lin, 0, self.head_count * self.dim_per_head)) 
@@ -87,16 +88,17 @@ class MultiHeadedAttention(object):
     scaled = scaled / math.sqrt(self.dim_per_head)
 
     # Apply Mask here # TODO: try if speed improves considerably when commenting out the masking
-    if att_mask is not None:
-      scaled += dy.inputTensor(att_mask * -100.0)
-    if batch_mask is not None:
-      # reshape (batch, time) -> (time, head_count*batch), then *-100
-      mask_expr = dy.inputTensor(np.resize(np.broadcast_to(batch_mask.T[:,np.newaxis,:],
-                                                         (sent_len, self.head_count, batch_size)), 
-                                         (1, sent_len, self.head_count*batch_size)) \
-                                         * -100,
-                                 batched=True)
-      scaled += mask_expr
+    if not self.ignore_masks:
+      if att_mask is not None:
+        scaled += dy.inputTensor(att_mask * -100.0)
+      if batch_mask is not None:
+        # reshape (batch, time) -> (time, head_count*batch), then *-100
+        mask_expr = dy.inputTensor(np.resize(np.broadcast_to(batch_mask.T[:,np.newaxis,:],
+                                                           (sent_len, self.head_count, batch_size)), 
+                                           (1, sent_len, self.head_count*batch_size)) \
+                                           * -100,
+                                   batched=True)
+        scaled += mask_expr
 
     # Computing Softmax here.
     attn = dy.softmax(scaled, d=1)
@@ -123,9 +125,9 @@ class MultiHeadedAttention(object):
 
 class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
-               input_dim=None, diagonal_mask_width=None, mask_self=False):
+               input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
-                                          input_dim=input_dim, is_self_att=True)
+                                          input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks)
     self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model)  # Feed Forward
     self.head_count = head_count
     self.downsample_factor = downsample_factor
@@ -174,7 +176,8 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
 
   def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=512, 
                head_count=8, ff_hidden_dim=2048, dropout=None, 
-               downsample_factor=1, diagonal_mask_width=None, mask_self=False):
+               downsample_factor=1, diagonal_mask_width=None, mask_self=False,
+               ignore_masks=False):
     register_handler(self)
     param_col = yaml_context.dynet_param_collection.param_col
     self.input_dim = input_dim
@@ -188,7 +191,8 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   input_dim=input_dim if layer_i==0 else hidden_dim,
                                                   head_count=head_count, ff_hidden_dim=ff_hidden_dim,
                                                   diagonal_mask_width=diagonal_mask_width,
-                                                  mask_self=mask_self))
+                                                  mask_self=mask_self,
+                                                  ignore_masks=ignore_masks))
 
   def __call__(self, sent):
     for module in self.modules:
