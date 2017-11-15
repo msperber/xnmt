@@ -49,7 +49,7 @@ class MultiHeadedAttention(object):
     sent_len = key.dim()[0][1]
     hidden_dim = key.dim()[0][0]
     if self.downsample_factor > 1:
-      strided_query = ExpressionSequence(expr_tensor=dy.strided_select(query.as_tensor(), [0, hidden_dim, 1, 0, sent_len, self.downsample_factor]))
+      strided_query = ExpressionSequence(expr_tensor=dy.strided_select(query.as_tensor(), [1,self.downsample_factor], [], []))
       residual = TimeDistributed()(strided_query)
       sent_len_out = len(strided_query)
     else:
@@ -98,7 +98,7 @@ class MultiHeadedAttention(object):
     attn_prod = drop_attn * value_up
     
     if self.downsample_factor > 1:
-      attn_prod = dy.strided_select(attn_prod, [0,sent_len,self.downsample_factor])
+      attn_prod = dy.strided_select(attn_prod, [self.downsample_factor], [], [])
 
     # Reshaping the attn_prod to input query dimensions
     temp = dy.reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), batch_size=batch_size)
