@@ -343,80 +343,34 @@ class ConvLSTMSeqTransducer(SeqTransducer):
 
 
 class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
-  yaml_tag = u'!NetworkInNetworkBiLSTMTransducer'
-  
-  def __init__(self, yaml_context, input_dim, layers=1, hidden_dim=None, batch_norm=True, stride=1, 
-               nin_depth=1, nin_enabled=True, nonlinearity="relu", dropout=None, pre_activation=False, 
-               weight_noise=None, weight_norm=False):
-    register_handler(self)
-    hidden_dim = hidden_dim or yaml_context.default_layer_dim
-    self.dropout = dropout or yaml_context.dropout
-    self.weight_noise = weight_noise  or yaml_context.weight_noise
-    self.builder = NetworkInNetworkBiRNNBuilder(yaml_context=yaml_context, 
-                                                num_layers=layers,
-                                                input_dim=input_dim,
-                                                hidden_dim=hidden_dim,  
-                                                nin_depth=nin_depth,
-                                                nin_enabled=nin_enabled,
-                                                stride=stride,
-                                                use_bn=batch_norm,
-                                                nonlinearity=nonlinearity,
-                                                pre_activation=pre_activation, 
-                                                weight_norm=weight_norm)
-    self.register_hier_child(self.builder)
-                                                          
-  @handle_xnmt_event
-  def on_set_train(self, val):
-    self.builder.set_dropout(self.dropout if val else 0.0)
-    if self.weight_noise > 0.0:
-      self.builder.set_weight_noise(self.weight_noise if val else 0.0)
-
-  @handle_xnmt_event
-  def on_start_sent(self, *args, **kwargs):
-    self._final_states = None
-
-  def __call__(self, sent):
-    output = self.builder.transduce(sent)
-    if not isinstance(output, ExpressionSequence):
-      output = ExpressionSequence(expr_list=output)
-    if hasattr(self.builder, "get_final_states"):
-      self._final_states = self.builder.get_final_states()
-    else:
-      self._final_states = [FinalTransducerState(output[-1])]
-    return output
-
-  def get_final_states(self):
-    assert self._final_states is not None, "LSTMSeqTransducer.__call__() must be invoked before LSTMSeqTransducer.get_final_states()"
-    return self._final_states
-
-
-class NetworkInNetworkBiRNNBuilder(object):
   """
   Builder for NiN-interleaved RNNs that delegates to regular RNNs and wires them together.
   See http://iamaaditya.github.io/2016/03/one-by-one-convolution/
   and https://arxiv.org/pdf/1610.03022.pdf
   """
+  yaml_tag = u'!NetworkInNetworkBiLSTMTransducer'
   def __init__(self, yaml_context, 
-               num_layers, input_dim, hidden_dim,  
+               layers, input_dim, hidden_dim,  
                nin_enabled=True, nin_depth=1, stride=1,
-               use_bn=False, nonlinearity="relu", pre_activation=False, 
-               weight_norm=False):
+               batch_norm=False, nonlinearity="relu", pre_activation=False, 
+               weight_norm=False, weight_noise = None, dropout=None):
     """
     :param yaml_context:
-    :param num_layers: depth of the network
+    :param layers: depth of the network
     :param input_dim: size of the inputs of bottom layer
     :param hidden_dim: size of the outputs (and intermediate layer representations)
     :param nin_enabled: whether to apply NiN units (projections (= 1x1 convolutions) + nonlinearity + batch norm units)
     :param nin_depth: number of NiN units (downsampling only performed for first projection)
     :param stride: in (first) projection layer, concatenate n frames and thus use the projection for downsampling
-    :param use_bn: uses batch norm between projection and non-linearity
+    :param batch_norm: uses batch norm between projection and non-linearity
     :param nonlinearity: "rely" or None
     :param pre_activation: True: BN -> relu -> LSTM -> [NiN -> ...] -> proj
                            False: LSTM -> [NiN -> ...]
     """
-    assert num_layers > 0
+    assert layers > 0
     assert hidden_dim % 2 == 0
     assert nin_depth > 0
+    register_handler(self)
     self.builder_layers = []
     self.hidden_dim = hidden_dim
     self.stride=stride
@@ -424,23 +378,23 @@ class NetworkInNetworkBiRNNBuilder(object):
     self.nin_enabled = nin_enabled
     self.nonlinearity = nonlinearity
     self.pre_activation = pre_activation
-    f = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, yaml_context.dynet_param_collection.param_col, 
-                                 weight_norm=weight_norm)
-    b = CustomCompactLSTMBuilder(1, input_dim, hidden_dim / 2, yaml_context.dynet_param_collection.param_col, 
-                                 weight_norm=weight_norm)
+    f = UniLSTMSeqTransducer(yaml_context, input_dim, hidden_dim / 2, dropout=dropout, 
+                             weight_norm=weight_norm, weightnoise_std = weight_noise)
+    b = UniLSTMSeqTransducer(yaml_context, input_dim, hidden_dim / 2, dropout=dropout, 
+                             weight_norm=weight_norm, weightnoise_std = weight_noise)
     self.builder_layers.append((f, b))
-    for _ in xrange(num_layers - 1):
-      f = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, yaml_context.dynet_param_collection.param_col, 
-                                   weight_norm=weight_norm)
-      b = CustomCompactLSTMBuilder(1, hidden_dim, hidden_dim / 2, yaml_context.dynet_param_collection.param_col, 
-                                   weight_norm=weight_norm)
+    for _ in xrange(layers - 1):
+      f = UniLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim / 2, dropout=dropout, 
+                              weight_norm=weight_norm, weightnoise_std = weight_noise)
+      b = UniLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim / 2, dropout=dropout, 
+                              weight_norm=weight_norm, weightnoise_std = weight_noise)
       self.builder_layers.append((f, b))
     
     self.nin_layers = []
     if not nin_enabled:
       assert self.stride == 1
       self.nin_layers.append([]) # no pre-activation
-      for _ in xrange(num_layers):
+      for _ in xrange(layers):
         self.nin_layers.append([NiNLayer(yaml_context, input_dim=hidden_dim/2, hidden_dim=hidden_dim,
                                          use_bn=False, nonlinearity=None, use_proj=False, 
                                          downsampling_factor=2)])
@@ -448,18 +402,18 @@ class NetworkInNetworkBiRNNBuilder(object):
       if pre_activation:
         # first pre-activation
         self.nin_layers.append([NiNLayer(yaml_context, input_dim=input_dim, hidden_dim=input_dim,
-                                         use_proj=False, use_bn=use_bn, nonlinearity=nonlinearity)])
-        for _ in xrange(num_layers-1):
+                                         use_proj=False, use_bn=batch_norm, nonlinearity=nonlinearity)])
+        for _ in xrange(layers-1):
           nin_layer = []
           for nin_i in xrange(nin_depth):
             nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
-                                      use_bn=use_bn, nonlinearity=self.nonlinearity, 
+                                      use_bn=batch_norm, nonlinearity=self.nonlinearity, 
                                       downsampling_factor=2*self.stride if nin_i==0 else 1))
           self.nin_layers.append(nin_layer)
         nin_layer = []
         for nin_i in xrange(nin_depth-1):
           nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
-                                    use_bn=use_bn, nonlinearity=self.nonlinearity, 
+                                    use_bn=batch_norm, nonlinearity=self.nonlinearity, 
                                     downsampling_factor=2*self.stride if nin_i==0 else 1))
         # very last layer: counterpiece to the first pre-activation
         nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_depth==1 else hidden_dim, hidden_dim=hidden_dim, 
@@ -468,35 +422,23 @@ class NetworkInNetworkBiRNNBuilder(object):
         self.nin_layers.append(nin_layer)
       else:
         self.nin_layers.append([]) # no pre-activation
-        for _ in xrange(num_layers):
+        for _ in xrange(layers):
           nin_layer = []
           for nin_i in xrange(nin_depth):
             nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
-                                      use_bn=use_bn, nonlinearity=self.nonlinearity, 
+                                      use_bn=batch_norm, nonlinearity=self.nonlinearity, 
                                       downsampling_factor=2*self.stride if nin_i==0 else 1))
           self.nin_layers.append(nin_layer)
-    for l in self.nin_layers:
-      for nin in l:
-        self.register_hier_child(nin)
-        
-  def set_dropout(self, p):
-    for (fb, bb) in self.builder_layers:
-      fb.set_dropout(p)
-      bb.set_dropout(p)
-  def disable_dropout(self):
-    for (fb, bb) in self.builder_layers:
-      fb.disable_dropout()
-      bb.disable_dropout()
-  def set_weight_noise(self, p):
-    for (fb, bb) in self.builder_layers:
-      fb.set_weight_noise(p)
-      bb.set_weight_noise(p)
-  def disable_weight_noise(self):
-    for (fb, bb) in self.builder_layers:
-      fb.disable_weight_noise()
-      bb.disable_weight_noise()
 
-  def transduce(self, es):
+  @handle_xnmt_event
+  def on_start_sent(self, *args, **kwargs):
+    self._final_states = None
+
+  def get_final_states(self):
+    assert self._final_states is not None, "LSTMSeqTransducer.__call__() must be invoked before LSTMSeqTransducer.get_final_states()"
+    return self._final_states
+        
+  def __call__(self, es):
     """
     :param es: ExpressionSequence
 
@@ -505,8 +447,8 @@ class NetworkInNetworkBiRNNBuilder(object):
       es = nin_layer(es)
       
     for layer_i, (fb, bb) in enumerate(self.builder_layers):
-      fs = fb.initial_state().transduce(es)
-      bs = bb.initial_state().transduce(ReversedExpressionSequence(es))
+      fs = fb(es)
+      bs = bb(ReversedExpressionSequence(es))
       interleaved = []
 
       if es.mask is None: mask = None
@@ -523,4 +465,5 @@ class NetworkInNetworkBiRNNBuilder(object):
       assert math.ceil(len(es) / float(self.stride))==len(projected)
       es = projected
     
+    self._final_states = [FinalTransducerState(projected[-1])]
     return projected

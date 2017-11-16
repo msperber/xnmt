@@ -55,9 +55,9 @@ class TimePadder(object):
     :returns: ExpressionSequence, with padded items indicated as masked
     """
     assert not es.tensor_transposed
-    time_dim = len(es.dim()[0])-1
-    single_pad_dim = list(es.dim()[0])
-    single_pad_dim[time_dim] = 1
+#     time_dim = len(es.dim()[0])-1
+    single_pad_dim = list(es.dim()[0])[:-1]
+#     single_pad_dim[time_dim] = 1
     batch_size = es.dim()[1]
     if self.mode=="zero":
       single_pad = dy.zeros(tuple(single_pad_dim), batch_size=batch_size)
@@ -78,6 +78,7 @@ class TimePadder(object):
 class NiNLayer(SeqTransducer):
   def __init__(self, yaml_context, input_dim, hidden_dim, use_proj=True,
                use_bn=True, nonlinearity="relu", downsampling_factor=1):
+    register_handler(self)
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
     self.use_proj = use_proj
@@ -100,7 +101,6 @@ class NiNLayer(SeqTransducer):
               if use_proj: dimensions = hidden x ceil(time/downsampling_factor)
               else:        dimensions = (input_dim*downsampling_factor) x ceil(time/downsampling_factor)
     """
-    register_handler(self)
     assert not es.tensor_transposed
     if not es.dim()[0][0] == self.input_dim:
       raise ValueError("This NiN Layer requires inputs of hidden dim %s, got %s." % (self.input_dim, es.dim()[0][0]))
