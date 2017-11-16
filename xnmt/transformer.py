@@ -13,7 +13,8 @@ MIN_VAL = -10000   # This value is close to NEG INFINITY
 
 
 class MultiHeadedAttention(object):
-  def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, is_self_att=False, ignore_masks=False):
+  def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
+               is_self_att=False, ignore_masks=False, broadcast_masks=False):
     if input_dim is None: input_dim = model_dim
     self.input_dim = input_dim
     assert model_dim % head_count == 0
@@ -24,6 +25,7 @@ class MultiHeadedAttention(object):
     self.downsample_factor = downsample_factor
     
     self.ignore_masks = ignore_masks
+    self.broadcast_masks = broadcast_masks
     
     self.is_self_att = is_self_att
     
@@ -87,17 +89,24 @@ class MultiHeadedAttention(object):
     scaled = query_up * dy.transpose(key_up) # ((T,dim_per_head),head_count*batchsize) * ((dim_per_head,T),head_count*batchsize)
     scaled = scaled / math.sqrt(self.dim_per_head)
 
-    # Apply Mask here # TODO: try if speed improves considerably when commenting out the masking
+    # Apply Mask here
     if not self.ignore_masks:
       if att_mask is not None:
-        scaled += dy.inputTensor(att_mask * -100.0)
+        att_mask_inp = att_mask * -100.0
+        if self.broadcast_masks:
+          att_mask_inp = np.asarray(np.broadcast_to(att_mask_inp[:,:,np.newaxis], (sent_len, sent_len, self.head_count*batch_size)))
+          scaled += dy.inputTensor(att_mask_inp, batched=True)
+        else:    
+          scaled += dy.inputTensor(att_mask_inp)
       if batch_mask is not None:
         # reshape (batch, time) -> (time, head_count*batch), then *-100
-        mask_expr = dy.inputTensor(np.resize(np.broadcast_to(batch_mask.T[:,np.newaxis,:],
+        inp = np.resize(np.broadcast_to(batch_mask.T[:,np.newaxis,:],
                                                            (sent_len, self.head_count, batch_size)), 
                                            (1, sent_len, self.head_count*batch_size)) \
-                                           * -100,
-                                   batched=True)
+                                           * -100
+        if self.broadcast_masks:
+          inp = np.asarray(np.broadcast_to(inp, (sent_len, sent_len, self.head_count*batch_size)))
+        mask_expr = dy.inputTensor(inp, batched=True)
         scaled += mask_expr
 
     # Computing Softmax here.
@@ -125,9 +134,9 @@ class MultiHeadedAttention(object):
 
 class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
-               input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False):
+               input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False, broadcast_masks=False):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
-                                          input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks)
+                                          input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, broadcast_masks=broadcast_masks)
     self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model)  # Feed Forward
     self.head_count = head_count
     self.downsample_factor = downsample_factor
@@ -177,7 +186,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
   def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=512, 
                head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
-               ignore_masks=False):
+               ignore_masks=False, broadcast_masks=False):
     register_handler(self)
     param_col = yaml_context.dynet_param_collection.param_col
     self.input_dim = input_dim
@@ -192,7 +201,8 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   head_count=head_count, ff_hidden_dim=ff_hidden_dim,
                                                   diagonal_mask_width=diagonal_mask_width,
                                                   mask_self=mask_self,
-                                                  ignore_masks=ignore_masks))
+                                                  ignore_masks=ignore_masks,
+                                                  broadcast_masks=broadcast_masks))
 
   def __call__(self, sent):
     for module in self.modules:
