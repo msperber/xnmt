@@ -160,6 +160,7 @@ class ReversedExpressionSequence(ExpressionSequence):
     self.base_expr_seq = base_expr_seq
     self.expr_tensor = None
     self.expr_list = None
+    self.tensor_transposed = False
     if base_expr_seq.mask is None:
       self.mask = None
     else:

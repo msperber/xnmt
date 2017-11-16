@@ -467,3 +467,150 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
     
     self._final_states = [FinalTransducerState(projected[-1])]
     return projected
+
+
+
+
+
+
+class QLSTMSeqTransducer(SeqTransducer, Serializable):
+  """
+  This implements the quasi-recurrent neural network with input, output, and forget gate.
+  https://arxiv.org/abs/1611.01576
+  """
+  yaml_tag = u'!QLSTMSeqTransducer'
+  
+  def __init__(self, yaml_context, input_dim=None, hidden_dim=None, dropout = None,
+               filter_width=2, stride=1):
+    register_handler(self)
+    model = yaml_context.dynet_param_collection.param_col
+    input_dim = input_dim or yaml_context.default_layer_dim
+    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    self.hidden_dim = hidden_dim
+    self.dropout = dropout or yaml_context.dropout
+    self.input_dim = input_dim
+    self.stride = stride
+
+    self.p_f = model.add_parameters(dim=(filter_width, 1, input_dim, hidden_dim * 4)) # i, f, o, z
+    self.p_b = model.add_parameters(dim=(hidden_dim * 4,))
+
+  @handle_xnmt_event
+  def on_set_train(self, val):
+    self.train = val
+
+  @handle_xnmt_event
+  def on_start_sent(self, src):
+    self._final_states = None
+
+  def get_final_states(self):
+    return self._final_states
+
+  def __call__(self, expr_seq):
+    """
+    transduce the sequence, applying masks if given (masked timesteps simply copy previous h / c)
+
+    :param expr_seq: expression sequence (will be accessed via tensor_expr
+    :returns: expression sequence
+    """
+    
+    if isinstance(expr_seq, list):
+      mask_out = expr_seq[0].mask
+      seq_len = len(expr_seq[0])
+      batch_size = expr_seq[0].dim()[1]
+      tensors = [e.as_tensor() for e in expr_seq]
+      input_tensor = dy.reshape(dy.concatenate(tensors), (seq_len, 1, self.input_dim), batch_size = batch_size)
+    else:
+      mask_out = expr_seq.mask
+      seq_len = len(expr_seq)
+      batch_size = expr_seq.dim()[1]
+      input_tensor = dy.reshape(dy.transpose(expr_seq.as_tensor()), (seq_len, 1, self.input_dim), batch_size = batch_size)
+    
+    if self.dropout > 0.0 and self.train:
+      input_tensor = dy.dropout(input_tensor, self.dropout)
+      
+    proj_inp = dy.conv2d_bias(input_tensor, dy.parameter(self.p_f), dy.parameter(self.p_b), stride=(self.stride,1), is_valid=False)
+    reduced_seq_len = proj_inp.dim()[0][0]
+    proj_inp = dy.transpose(dy.reshape(proj_inp, (reduced_seq_len, self.hidden_dim*4), batch_size = batch_size))
+    # proj_inp dims: (hidden, 1, seq_len), batch_size
+    if self.stride > 1 and mask_out is not None:
+        mask_out = mask_out.lin_subsampled(trg_len=reduced_seq_len)
+    
+    h = [dy.zeroes(dim=(self.hidden_dim,1), batch_size=batch_size)]
+    c = [dy.zeroes(dim=(self.hidden_dim,1), batch_size=batch_size)]
+    for t in range(reduced_seq_len):
+      i_t = dy.logistic(dy.strided_select(proj_inp, [], [0, t], [self.hidden_dim, t+1]))
+      f_t = dy.logistic(dy.strided_select(proj_inp, [], [self.hidden_dim, t], [self.hidden_dim*2, t+1]))
+      o_t = dy.logistic(dy.strided_select(proj_inp, [], [self.hidden_dim*2, t], [self.hidden_dim*3, t+1]))
+      z_t = dy.tanh(dy.strided_select(proj_inp, [], [self.hidden_dim*3, t], [self.hidden_dim*4, t+1]))
+      
+      if self.dropout > 0.0 and self.train:
+        retention_rate = 1.0 - self.dropout
+        dropout_mask = dy.random_bernoulli((self.hidden_dim,1), retention_rate, batch_size=batch_size)
+        f_t = 1.0 - dy.cmult(dropout_mask, 1.0-f_t) # TODO: would be easy to make a zoneout dynet operation to save memory
+        i_t = dy.cmult(dropout_mask, f_t)
+      
+      if t==0:
+        c_t = dy.cmult(i_t, z_t)
+      else:
+        c_t = dy.cmult(f_t, c[-1]) + dy.cmult(i_t, z_t)
+      h_t = dy.cmult(o_t, c_t) # note: LSTM would use dy.tanh(c_t) instead of c_t
+      if mask_out is None or np.isclose(np.sum(mask_out.np_arr[:,t:t+1]), 0.0):
+        c.append(c_t)
+        h.append(h_t)
+      else:
+        c.append(mask_out.cmult_by_timestep_expr(c_t,t,True) + mask_out.cmult_by_timestep_expr(c[-1],t,False))
+        h.append(mask_out.cmult_by_timestep_expr(h_t,t,True) + mask_out.cmult_by_timestep_expr(h[-1],t,False))
+
+    self._final_states = [FinalTransducerState(dy.reshape(h[-1], (self.hidden_dim,), batch_size=batch_size),\
+                                               dy.reshape(c[-1], (self.hidden_dim,), batch_size=batch_size))]
+    return ExpressionSequence(expr_list=h[1:], mask=mask_out)
+
+    
+
+class BiQLSTMSeqTransducer(SeqTransducer, Serializable):
+  yaml_tag = u'!BiQLSTMSeqTransducer'
+  
+  def __init__(self, yaml_context, layers, input_dim=None, hidden_dim=None, dropout=None, stride=1, filter_width=2):
+    register_handler(self)
+    self.num_layers = layers
+    input_dim = input_dim or yaml_context.default_layer_dim
+    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    self.hidden_dim = hidden_dim
+    self.dropout_rate = dropout or yaml_context.dropout
+    assert hidden_dim % 2 == 0
+    self.forward_layers = [QLSTMSeqTransducer(yaml_context, input_dim, hidden_dim/2, dropout, stride=stride, filter_width=filter_width)]
+    self.backward_layers = [QLSTMSeqTransducer(yaml_context, input_dim, hidden_dim/2, dropout, stride=stride, filter_width=filter_width)]
+    self.forward_layers += [QLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim/2, dropout, stride=stride, filter_width=filter_width) for _ in range(layers-1)]
+    self.backward_layers += [QLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim/2, dropout, stride=stride, filter_width=filter_width) for _ in range(layers-1)]
+
+  @handle_xnmt_event
+  def on_start_sent(self, src):
+    self._final_states = None
+
+  def get_final_states(self):
+    return self._final_states
+
+  def __call__(self, es):
+    mask = es.mask
+    # first layer
+    forward_es = self.forward_layers[0](es)
+    rev_backward_es = self.backward_layers[0](ReversedExpressionSequence(es))
+
+    # TODO: concat input of each layer to its output; or, maybe just add standard residual connections
+    for layer_i in range(1, len(self.forward_layers)):
+      new_forward_es = self.forward_layers[layer_i]([forward_es, ReversedExpressionSequence(rev_backward_es)])
+      mask_out = mask
+      if mask_out is not None and new_forward_es.mask.np_arr.shape != mask_out.np_arr.shape:
+        mask_out = mask_out.lin_subsampled(trg_len=len(new_forward_es))
+      rev_backward_es = ExpressionSequence(self.backward_layers[layer_i]([ReversedExpressionSequence(forward_es), rev_backward_es]).as_list(), mask=mask_out)
+      forward_es = new_forward_es
+
+    self._final_states = [FinalTransducerState(dy.concatenate([self.forward_layers[layer_i].get_final_states()[0].main_expr(),
+                                                            self.backward_layers[layer_i].get_final_states()[0].main_expr()]),
+                                            dy.concatenate([self.forward_layers[layer_i].get_final_states()[0].cell_expr(),
+                                                            self.backward_layers[layer_i].get_final_states()[0].cell_expr()])) \
+                          for layer_i in range(len(self.forward_layers))]
+    mask_out = mask
+    if mask_out is not None and new_forward_es.mask.np_arr.shape != mask_out.np_arr.shape:
+      mask_out = mask_out.lin_subsampled(trg_len=len(new_forward_es))
+    return ExpressionSequence(expr_list=[dy.concatenate([forward_es[i],rev_backward_es[-i-1]]) for i in range(len(forward_es))], mask=mask_out)
