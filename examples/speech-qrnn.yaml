@@ -23,11 +23,17 @@ speech-qrnn:
     model: !DefaultTranslator
       src_embedder: !NoopEmbedder
         emb_dim: 240
-      encoder: !BiQLSTMSeqTransducer
-        layers: 2
-        stride: 2
-        input_dim: 240
-        hidden_dim: 64
+      encoder: !ModularSeqTransducer
+        modules:
+        - !BiQLSTMSeqTransducer
+          layers: 2
+          stride: 2
+          input_dim: 240
+          hidden_dim: 64
+        - !BiQLSTMSeqTransducer
+          layers: 1
+          input_dim: 64
+          hidden_dim: 64
       attender: !MlpAttender
         state_dim: 64
         hidden_dim: 64

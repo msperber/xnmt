@@ -611,6 +611,6 @@ class BiQLSTMSeqTransducer(SeqTransducer, Serializable):
                                                             self.backward_layers[layer_i].get_final_states()[0].cell_expr()])) \
                           for layer_i in range(len(self.forward_layers))]
     mask_out = mask
-    if mask_out is not None and new_forward_es.mask.np_arr.shape != mask_out.np_arr.shape:
-      mask_out = mask_out.lin_subsampled(trg_len=len(new_forward_es))
+    if mask_out is not None and forward_es.mask.np_arr.shape != mask_out.np_arr.shape:
+      mask_out = mask_out.lin_subsampled(trg_len=len(forward_es))
     return ExpressionSequence(expr_list=[dy.concatenate([forward_es[i],rev_backward_es[-i-1]]) for i in range(len(forward_es))], mask=mask_out)

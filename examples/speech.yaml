@@ -13,6 +13,8 @@ speech-2layers:
   train: !TrainingRegimen
     src_format: contvec
     trainer: !AdamTrainer {}
+    glob:
+      dropout: 0.5
     corpus_parser: !BilingualCorpusParser
       src_reader: !ContVecReader
         transpose: True
