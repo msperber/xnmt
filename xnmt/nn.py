@@ -29,6 +29,7 @@ class ResidualTransducer(Transducer):
   layer sizes match, which can be done via the plain_resizer parameter
   (see advice here: https://github.com/fchollet/keras/issues/2608 )
   """  
+  yaml_tag = u'!ResidualTransducer'
   def __init__(self, shortcut_operation=None):
     self.shortcut_operation = shortcut_operation
   def __call__(self, plain_es, transformed_es):
