@@ -18,6 +18,7 @@ from xnmt.input import *
 import xnmt.lstm
 import xnmt.transformer
 import xnmt.pyramidal
+import xnmt.conv_encoder
 import xnmt.conv
 import xnmt.ff
 import xnmt.segment_transducer
