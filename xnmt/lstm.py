@@ -576,7 +576,7 @@ class BiQLSTMSeqTransducer(SeqTransducer, Serializable):
     input_dim = input_dim or yaml_context.default_layer_dim
     hidden_dim = hidden_dim or yaml_context.default_layer_dim
     self.hidden_dim = hidden_dim
-    self.dropout_rate = dropout or yaml_context.dropout
+    dropout = dropout or yaml_context.dropout
     assert hidden_dim % 2 == 0
     self.forward_layers = [QLSTMSeqTransducer(yaml_context, input_dim, hidden_dim/2, dropout, stride=stride, filter_width=filter_width)]
     self.backward_layers = [QLSTMSeqTransducer(yaml_context, input_dim, hidden_dim/2, dropout, stride=stride, filter_width=filter_width)]
