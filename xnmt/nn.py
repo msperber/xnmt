@@ -5,7 +5,7 @@ from xnmt.expression_sequence import ExpressionSequence
 from xnmt.batch_norm import BatchNorm
 from xnmt.transducer import Transducer, SeqTransducer
 from xnmt.events import register_handler, handle_xnmt_event
-
+from xnmt.serializer import Serializable
 class WeightNoise(object):
   def __init__(self, std):
     self.std = std
@@ -20,7 +20,7 @@ class WeightNoise(object):
       p_expr = dy.noise(p_expr, self.std)
     return p_expr
     
-class ResidualTransducer(Transducer):
+class ResidualTransducer(Transducer, Serializable):
   """
   Adds a residual connection.
   
