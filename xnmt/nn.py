@@ -30,6 +30,29 @@ class ResidualTransducer(Transducer, Serializable):
   (see advice here: https://github.com/fchollet/keras/issues/2608 )
   """  
   yaml_tag = u'!ResidualTransducer'
+  def __init__(self, shortcut_operation=None, transform=None):
+    self.shortcut_operation = shortcut_operation
+    self.transform_operation = transform
+  def __call__(self, es):
+    plain_es = es
+    if self.shortcut_operation:
+      plain_es = self.shortcut_operation(plain_es)
+    transformed_es = self.transform_operation(es)
+    if plain_es.dim() != transformed_es.dim():
+      raise ValueError("residual connections need matching shortcut / output dimensions, got: %s and %s" % (plain_es.dim(), transformed_es.dim()))
+    return ExpressionSequence(expr_tensor=plain_es.as_tensor() + transformed_es.as_tensor(), 
+                              mask=plain_es.mask, tensor_transposed=plain_es.tensor_transposed)
+
+class ResidualTransducer2(Transducer, Serializable):
+  """
+  Adds a residual connection.
+  
+  According to https://arxiv.org/pdf/1603.05027.pdf it is preferable to keep the shortcut
+  connection pure (i.e., None), although it might be necessary to insert a linear transform to make
+  layer sizes match, which can be done via the plain_resizer parameter
+  (see advice here: https://github.com/fchollet/keras/issues/2608 )
+  """  
+  yaml_tag = u'!ResidualTransducer2'
   def __init__(self, shortcut_operation=None):
     self.shortcut_operation = shortcut_operation
   def __call__(self, plain_es, transformed_es):
