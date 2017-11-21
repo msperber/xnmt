@@ -3,7 +3,7 @@ import dynet as dy
 from xnmt.batcher import Mask
 from xnmt.expression_sequence import ExpressionSequence
 from xnmt.batch_norm import BatchNorm
-from xnmt.transducer import Transducer, SeqTransducer
+from xnmt.transducer import SeqTransducer
 from xnmt.events import register_handler, handle_xnmt_event
 from xnmt.serializer import Serializable
 class WeightNoise(object):
@@ -20,7 +20,7 @@ class WeightNoise(object):
       p_expr = dy.noise(p_expr, self.std)
     return p_expr
     
-class ResidualTransducer(Transducer, Serializable):
+class ResidualSeqTransducer(SeqTransducer, Serializable):
   """
   Adds a residual connection.
   
@@ -29,8 +29,9 @@ class ResidualTransducer(Transducer, Serializable):
   layer sizes match, which can be done via the plain_resizer parameter
   (see advice here: https://github.com/fchollet/keras/issues/2608 )
   """  
-  yaml_tag = u'!ResidualTransducer'
+  yaml_tag = u'!ResidualSeqTransducer'
   def __init__(self, shortcut_operation=None, transform=None):
+    register_handler(self)
     self.shortcut_operation = shortcut_operation
     self.transform_operation = transform
   def __call__(self, es):
@@ -40,28 +41,14 @@ class ResidualTransducer(Transducer, Serializable):
     transformed_es = self.transform_operation(es)
     if plain_es.dim() != transformed_es.dim():
       raise ValueError("residual connections need matching shortcut / output dimensions, got: %s and %s" % (plain_es.dim(), transformed_es.dim()))
-    return ExpressionSequence(expr_tensor=plain_es.as_tensor() + transformed_es.as_tensor(), 
-                              mask=plain_es.mask, tensor_transposed=plain_es.tensor_transposed)
-
-class ResidualTransducer2(Transducer, Serializable):
-  """
-  Adds a residual connection.
-  
-  According to https://arxiv.org/pdf/1603.05027.pdf it is preferable to keep the shortcut
-  connection pure (i.e., None), although it might be necessary to insert a linear transform to make
-  layer sizes match, which can be done via the plain_resizer parameter
-  (see advice here: https://github.com/fchollet/keras/issues/2608 )
-  """  
-  yaml_tag = u'!ResidualTransducer2'
-  def __init__(self, shortcut_operation=None):
-    self.shortcut_operation = shortcut_operation
-  def __call__(self, plain_es, transformed_es):
     if self.shortcut_operation:
-      plain_es = self.shortcut_operation(plain_es)
-    if plain_es.dim() != transformed_es.dim():
-      raise ValueError("residual connections need matching shortcut / output dimensions, got: %s and %s" % (plain_es.dim(), transformed_es.dim()))
+      self._final_states = [trans_f+shortc_f for trans_f,shortc_f in zip(self.transform_operation.get_final_states(), self.shortcut_operation.get_final_states())]
+    else:
+      self._final_states = self.transform_operation.get_final_states()
     return ExpressionSequence(expr_tensor=plain_es.as_tensor() + transformed_es.as_tensor(), 
                               mask=plain_es.mask, tensor_transposed=plain_es.tensor_transposed)
+  def get_final_states(self):
+    return self._final_states
 
 class TimePadder(object):
   """
