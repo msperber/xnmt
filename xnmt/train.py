@@ -74,7 +74,7 @@ class TrainingRegimen(Serializable):
                            --epoch EPOCH_NUM will be appended to the command.
                            To just reload the data after each epoch set the command to 'true'.
     """
-    dy.renew_cg(immediate_compute=True)
+    dy.renew_cg()
 
     # TODO: don't need to keep a dedicated args object any longer
     args = dict(dev_every=dev_every, batcher=batcher, 
@@ -213,7 +213,7 @@ class TrainingRegimen(Serializable):
       trg = self.train_trg[batch_num]
 
       # Loss calculation
-      dy.renew_cg(immediate_compute=True)
+      dy.renew_cg()
       loss_builder = LossBuilder()
       standard_loss = self.model.calc_loss(src, trg)
 
@@ -234,6 +234,7 @@ class TrainingRegimen(Serializable):
       # Log the loss sum
       loss_value = loss_builder.compute()
       self.logger.update_epoch_loss(src, trg, loss_builder)
+      dy.print_text_graphviz()
       if update_weights:
         loss_value.backward()
         self.trainer.update()
@@ -321,7 +322,7 @@ class TrainingRegimen(Serializable):
     loss_builder = LossBuilder()
     trg_words_cnt = 0
     for src, trg in zip(self.dev_src, self.dev_trg):
-      dy.renew_cg(immediate_compute=True)
+      dy.renew_cg()
       standard_loss = self.model.calc_loss(src, trg)
       loss_builder.add_loss("loss", standard_loss)
       trg_words_cnt += self.logger.count_trg_words(trg)

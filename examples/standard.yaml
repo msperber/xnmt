@@ -30,7 +30,7 @@ standard:
       src_embedder: !SimpleWordEmbedder {}
       encoder: !BiLSTMSeqTransducer
         layers: 1
-      attender: !MlpAttender {}
+      attender: !MlpAttender
         dropout: 0.5
         dropout_scores: False
       trg_embedder: !SimpleWordEmbedder {}
