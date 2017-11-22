@@ -491,8 +491,8 @@ class QLSTMSeqTransducer(SeqTransducer, Serializable):
     self.input_dim = input_dim
     self.stride = stride
 
-    self.p_f = model.add_parameters(dim=(filter_width, 1, input_dim, hidden_dim * 4)) # i, f, o, z
-    self.p_b = model.add_parameters(dim=(hidden_dim * 4,))
+    self.p_f = model.add_parameters(dim=(filter_width, 1, input_dim, hidden_dim * 3)) # f, o, z
+    self.p_b = model.add_parameters(dim=(hidden_dim * 3,))
 
   @handle_xnmt_event
   def on_set_train(self, val):
@@ -530,7 +530,7 @@ class QLSTMSeqTransducer(SeqTransducer, Serializable):
       
     proj_inp = dy.conv2d_bias(input_tensor, dy.parameter(self.p_f), dy.parameter(self.p_b), stride=(self.stride,1), is_valid=False)
     reduced_seq_len = proj_inp.dim()[0][0]
-    proj_inp = dy.transpose(dy.reshape(proj_inp, (reduced_seq_len, self.hidden_dim*4), batch_size = batch_size))
+    proj_inp = dy.transpose(dy.reshape(proj_inp, (reduced_seq_len, self.hidden_dim*3), batch_size = batch_size))
     # proj_inp dims: (hidden, 1, seq_len), batch_size
     if self.stride > 1 and mask_out is not None:
         mask_out = mask_out.lin_subsampled(trg_len=reduced_seq_len)
@@ -538,16 +538,16 @@ class QLSTMSeqTransducer(SeqTransducer, Serializable):
     h = [dy.zeroes(dim=(self.hidden_dim,1), batch_size=batch_size)]
     c = [dy.zeroes(dim=(self.hidden_dim,1), batch_size=batch_size)]
     for t in range(reduced_seq_len):
-      i_t = dy.logistic(dy.strided_select(proj_inp, [], [0, t], [self.hidden_dim, t+1]))
-      f_t = dy.logistic(dy.strided_select(proj_inp, [], [self.hidden_dim, t], [self.hidden_dim*2, t+1]))
-      o_t = dy.logistic(dy.strided_select(proj_inp, [], [self.hidden_dim*2, t], [self.hidden_dim*3, t+1]))
-      z_t = dy.tanh(dy.strided_select(proj_inp, [], [self.hidden_dim*3, t], [self.hidden_dim*4, t+1]))
+      f_t = dy.logistic(dy.strided_select(proj_inp, [], [0, t], [self.hidden_dim, t+1]))
+      o_t = dy.logistic(dy.strided_select(proj_inp, [], [self.hidden_dim, t], [self.hidden_dim*2, t+1]))
+      z_t = dy.tanh(dy.strided_select(proj_inp, [], [self.hidden_dim*2, t], [self.hidden_dim*3, t+1]))
       
       if self.dropout > 0.0 and self.train:
         retention_rate = 1.0 - self.dropout
         dropout_mask = dy.random_bernoulli((self.hidden_dim,1), retention_rate, batch_size=batch_size)
         f_t = 1.0 - dy.cmult(dropout_mask, 1.0-f_t) # TODO: would be easy to make a zoneout dynet operation to save memory
-        i_t = dy.cmult(dropout_mask, f_t)
+
+      i_t = 1.0 - f_t
       
       if t==0:
         c_t = dy.cmult(i_t, z_t)
