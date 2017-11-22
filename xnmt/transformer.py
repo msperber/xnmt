@@ -71,9 +71,11 @@ class MultiHeadedAttention(object):
     def shape_projection(x):
       total_words = x.dim()[1]
       seq_len = total_words / batch_size
-      temp = dy.reshape(x, (self.model_dim, seq_len), batch_size=batch_size)
-      temp = dy.transpose(temp)
-      return dy.reshape(temp, (seq_len, self.dim_per_head), batch_size=batch_size * self.head_count)
+#       temp = dy.reshape(x, (self.model_dim, seq_len), batch_size=batch_size)
+#       temp = dy.transpose(temp)
+#       temp = dy.reshape(temp, (seq_len, self.dim_per_head), batch_size=batch_size * self.head_count)
+      temp = dy.reshape_transpose_reshape(x, (self.model_dim, seq_len), (seq_len, self.dim_per_head), pre_batch_size=batch_size, post_batch_size=batch_size * self.head_count)
+      return temp
 
     # Concatenate all the words together for doing vectorized affine transform
     if self.is_self_att:
@@ -122,9 +124,10 @@ class MultiHeadedAttention(object):
       attn_prod = dy.strided_select(attn_prod, [self.downsample_factor], [], [])
 
     # Reshaping the attn_prod to input query dimensions
-    temp = dy.reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), batch_size=batch_size)
-    temp = dy.transpose(temp)
-    out = dy.reshape(temp, (self.model_dim,), batch_size=batch_size*sent_len_out)
+#     temp = dy.reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), batch_size=batch_size)
+#     temp = dy.transpose(temp)
+#     out = dy.reshape(temp, (self.model_dim,), batch_size=batch_size*sent_len_out)
+    out = dy.reshape_transpose_reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), (self.model_dim,), pre_batch_size=batch_size, post_batch_size=batch_size*sent_len_out)
 
     # Adding dropout and layer normalization
     res = dy.dropout(out, p) + residual
