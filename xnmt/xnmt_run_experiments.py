@@ -90,6 +90,7 @@ def main(overwrite_args=None):
     print("> Initializing TrainingRegimen")
     train_args = exp_tasks["train"]
     train_args.model_file = exp_args["model_file"] # TODO: can we use param sharing for this?
+    train_args.dynet_profiling = args.dynet_profiling
     model_context = ModelContext()
     model_context.dynet_param_collection = PersistentParamCollection(exp_args["model_file"], 1)
     if hasattr(train_args, "glob"):
