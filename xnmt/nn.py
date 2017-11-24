@@ -6,6 +6,7 @@ from xnmt.batch_norm import BatchNorm
 from xnmt.transducer import SeqTransducer
 from xnmt.events import register_handler, handle_xnmt_event
 from xnmt.serializer import Serializable
+
 class WeightNoise(object):
   def __init__(self, std):
     self.std = std

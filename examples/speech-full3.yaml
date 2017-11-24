@@ -1,4 +1,4 @@
-defaults:
+speech-full:
   experiment:
     model_file: examples/output/<EXP>.mod
     hyp_file: examples/output/<EXP>.hyp
@@ -6,7 +6,7 @@ defaults:
     err_file: examples/output/<EXP>.err
     run_for_epochs: 20
     eval_metrics: cer,wer
-  train:
+  train: !TrainingRegimen
     src_format: contvec
     training_corpus: !BilingualTrainingCorpus
       train_src: examples/data/synth.contvec.npz
@@ -21,9 +21,9 @@ defaults:
     model: !DefaultTranslator
       src_embedder: !NoopEmbedder
         emb_dim: 120
-      encoder: !ModularEncoder
+      encoder: !ModularSeqTransducer
         modules:
-        - !StridedConvEncoder
+        - !StridedConvSeqTransducer
           layers: 2
           output_tensor: False
           input_dim: 120
@@ -35,15 +35,14 @@ defaults:
           - !!python/tuple [2,2]
           nonlinearity: relu
           init_gauss_var: 0.0001
-        - !ResConvLstmEncoder
+        - !ResConvLSTMSeqTransducer
           input_dim: 288
           num_filters: 32
-        - !LSTMEncoder
-          bidirectional: True
+        - !BiLSTMSeqTransducer
           layers: 1
           input_dim: 288
           hidden_dim: 64
-      attender: !StandardAttender
+      attender: !MlpAttender
         state_dim: 64
         hidden_dim: 64
         input_dim: 64
@@ -58,5 +57,5 @@ defaults:
   evaluate:
     ref_file: examples/data/synth.char
 
-speech-full:
+
 
