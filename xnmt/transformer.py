@@ -14,7 +14,7 @@ MIN_VAL = -10000   # This value is close to NEG INFINITY
 
 class MultiHeadedAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
-               is_self_att=False, ignore_masks=False, broadcast_masks=False, plot_attention="attn-report.<EXP>.layer_1"):
+               is_self_att=False, ignore_masks=False, broadcast_masks=False, plot_attention=None):
     if input_dim is None: input_dim = model_dim
     self.input_dim = input_dim
     assert model_dim % head_count == 0
@@ -149,9 +149,11 @@ class MultiHeadedAttention(object):
 
 class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
-               input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False, broadcast_masks=False):
+               input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False, broadcast_masks=False,
+               plot_attention=None):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
-                                          input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, broadcast_masks=broadcast_masks)
+                                          input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
+                                          broadcast_masks=broadcast_masks, plot_attention=plot_attention)
     self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model)  # Feed Forward
     self.head_count = head_count
     self.downsample_factor = downsample_factor
@@ -201,7 +203,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
   def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=512, 
                head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
-               ignore_masks=False, broadcast_masks=False):
+               ignore_masks=False, broadcast_masks=False, plot_attention=None):
     register_handler(self)
     param_col = yaml_context.dynet_param_collection.param_col
     self.input_dim = input_dim
@@ -210,6 +212,10 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
     self.layers = layers
     self.modules = []
     for layer_i in range(layers):
+      if plot_attention is not None:
+        plot_attention_layer = "{}.layer_{}".format(plot_attention, layer_i)
+      else:
+        plot_attention_layer = None
       self.modules.append(TransformerEncoderLayer(hidden_dim, param_col, 
                                                   downsample_factor=downsample_factor, 
                                                   input_dim=input_dim if layer_i==0 else hidden_dim,
@@ -217,7 +223,8 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   diagonal_mask_width=diagonal_mask_width,
                                                   mask_self=mask_self,
                                                   ignore_masks=ignore_masks,
-                                                  broadcast_masks=broadcast_masks))
+                                                  broadcast_masks=broadcast_masks,
+                                                  plot_attention=plot_attention_layer))
 
   def __call__(self, sent):
     for module in self.modules:
