@@ -14,7 +14,7 @@ MIN_VAL = -10000   # This value is close to NEG INFINITY
 
 class MultiHeadedAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
-               is_self_att=False, ignore_masks=False, broadcast_masks=False):
+               is_self_att=False, ignore_masks=False, broadcast_masks=False, plot_attention="attn-report.<EXP>.layer_1"):
     if input_dim is None: input_dim = model_dim
     self.input_dim = input_dim
     assert model_dim % head_count == 0
@@ -23,6 +23,8 @@ class MultiHeadedAttention(object):
     self.head_count = head_count
     assert downsample_factor >= 1
     self.downsample_factor = downsample_factor
+    self.plot_attention = plot_attention
+    self.plot_attention_counter = 0
     
     self.ignore_masks = ignore_masks
     self.broadcast_masks = broadcast_masks
@@ -122,6 +124,16 @@ class MultiHeadedAttention(object):
     
     if self.downsample_factor > 1:
       attn_prod = dy.strided_select(attn_prod, [self.downsample_factor], [], [])
+    
+    if self.plot_attention:
+      import matplotlib.pyplot as plt
+      assert batch_size==1
+      for i in range(attn_prod.dim()[1]):
+        plt.matshow(dy.pick_batch_elem(attn_prod, i).npvalue())
+        plt.savefig("{}.sent_{}.head_{}.png".format(self.plot_attention, self.plot_attention_counter, i))
+        plt.clf()
+        plt.close('all')
+      self.plot_attention_counter += 1
 
     # Reshaping the attn_prod to input query dimensions
 #     temp = dy.reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), batch_size=batch_size)

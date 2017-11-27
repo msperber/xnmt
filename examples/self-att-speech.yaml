@@ -1,4 +1,4 @@
-speech-2layers:
+speech-self-att:
   experiment:
     model_file: examples/output/<EXP>.mod
     hyp_file: examples/output/<EXP>.hyp
@@ -8,6 +8,8 @@ speech-2layers:
     eval_metrics: cer,wer
   train: !TrainingRegimen
     src_format: contvec
+    batcher: !SrcBatcher
+      batch_size: 1
     corpus_parser: !BilingualCorpusParser
       src_reader: !ContVecReader
         transpose: True
@@ -41,7 +43,7 @@ speech-2layers:
         input_dim: 512
         mlp_hidden_dim: 64
         bridge: !NoBridge {}
-  decode:
+  decode: !XnmtDecoder
     src_file: examples/data/synth.contvec.npz
   evaluate:
     ref_file: examples/data/synth.char
