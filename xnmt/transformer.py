@@ -129,9 +129,15 @@ class MultiHeadedAttention(object):
       import matplotlib.pyplot as plt
       assert batch_size==1
       for i in range(attn_prod.dim()[1]):
-        plt.matshow(dy.pick_batch_elem(attn_prod, i).npvalue())
-        plt.savefig("{}.sent_{}.head_{}.png".format(self.plot_attention, self.plot_attention_counter, i))
-        plt.clf()
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.matshow(dy.pick_batch_elem(attn_prod, i).npvalue())
+#         im = ax.get_images()
+#         extent =  im[0].get_extent()
+#         ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2]))/1.0)
+        ax.set_aspect('auto')
+        fig.savefig("{}.sent_{}.head_{}.png".format(self.plot_attention, self.plot_attention_counter, i))
+        fig.clf()
         plt.close('all')
       self.plot_attention_counter += 1
 

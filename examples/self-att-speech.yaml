@@ -32,6 +32,7 @@ speech-self-att:
         mask_self: True
         ignore_masks: False
         broadcast_masks: False
+        plot_attention: examples/output/<EXP>.self-att
       attender: !MlpAttender
         state_dim: 64
         hidden_dim: 64
