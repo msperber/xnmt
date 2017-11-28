@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import dynet as dy
 import math
 import numpy as np
@@ -43,6 +44,15 @@ class MultiHeadedAttention(object):
     self.layer_norm = LayerNorm(model_dim, model)
     
     if model_dim!=input_dim: self.res_shortcut = PositionwiseLinear(input_dim, model_dim, model)
+ 
+  def plot_att_mat(self, mat, filename, dpi=1200):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.matshow(mat)
+    ax.set_aspect('auto')
+    fig.savefig(filename, dpi=dpi)
+    fig.clf()
+    plt.close('all')
 
   def __call__(self, key, value, query, att_mask, batch_mask, p):
     """
@@ -126,20 +136,17 @@ class MultiHeadedAttention(object):
       attn_prod = dy.strided_select(attn_prod, [self.downsample_factor], [], [])
     
     if self.plot_attention:
-      import matplotlib.pyplot as plt
       assert batch_size==1
+      mats = []
       for i in range(attn.dim()[1]):
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.matshow(dy.pick_batch_elem(attn, i).npvalue())
-#         im = ax.get_images()
-#         extent =  im[0].get_extent()
-#         ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2]))/1.0)
-        ax.set_aspect('auto')
-        fig.savefig("{}.sent_{}.head_{}.png".format(self.plot_attention, self.plot_attention_counter, i),
-                    dpi=1200)
-        fig.clf()
-        plt.close('all')
+        mats.append(dy.pick_batch_elem(attn, i).npvalue())
+        self.plot_att_mat(mats[-1], 
+                          "{}.sent_{}.head_{}.png".format(self.plot_attention, self.plot_attention_counter, i),
+                          300)
+      avg_mat = np.average(mats,axis=0)
+      self.plot_att_mat(avg_mat, 
+                        "{}.sent_{}.head_avg.png".format(self.plot_attention, self.plot_attention_counter),
+                        300)
       self.plot_attention_counter += 1
 
     # Reshaping the attn_prod to input query dimensions

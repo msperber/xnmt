@@ -28,7 +28,7 @@ speech-self-att:
         hidden_dim: 512
         ff_hidden_dim: 512
         downsample_factor: 2
-        diagonal_mask_width: 3
+        diagonal_mask_width: ~
         mask_self: True
         ignore_masks: False
         broadcast_masks: False
