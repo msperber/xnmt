@@ -136,7 +136,7 @@ class MultiHeadedAttention(object):
 #         extent =  im[0].get_extent()
 #         ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2]))/1.0)
         ax.set_aspect('auto')
-        fig.savefig("{}.sent_{}.head_{}.png".format(self.plot_attention, self.plot_attention_counter, i))
+        fig.savefig("{}.sent_{}.head_{}.svg".format(self.plot_attention, self.plot_attention_counter, i))
         fig.clf()
         plt.close('all')
       self.plot_attention_counter += 1
