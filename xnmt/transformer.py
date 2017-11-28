@@ -128,10 +128,10 @@ class MultiHeadedAttention(object):
     if self.plot_attention:
       import matplotlib.pyplot as plt
       assert batch_size==1
-      for i in range(attn_prod.dim()[1]):
+      for i in range(attn.dim()[1]):
         fig = plt.figure()
         ax = fig.add_subplot(111)
-        ax.matshow(dy.pick_batch_elem(attn_prod, i).npvalue())
+        ax.matshow(dy.pick_batch_elem(attn, i).npvalue())
 #         im = ax.get_images()
 #         extent =  im[0].get_extent()
 #         ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2]))/1.0)
