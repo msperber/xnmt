@@ -155,9 +155,8 @@ class MultiHeadedAttention(object):
       self.plot_att_mat(avg_mat, 
                         "{}.sent_{}.head_avg.png".format(self.plot_attention, self.plot_attention_counter),
                         300)
-      self.plot_attention_counter += 1
       in_val = value or key
-      cosim_before = cosine_similarity(in_val.as_tensor().npvalue())
+      cosim_before = cosine_similarity(in_val.as_tensor().T.npvalue())
       self.plot_att_mat(cosim_before, 
                         "{}.sent_{}.cosim_before.png".format(self.plot_attention, self.plot_attention_counter),
                         600)
@@ -165,6 +164,7 @@ class MultiHeadedAttention(object):
       self.plot_att_mat(cosim_after, 
                         "{}.sent_{}.cosim_after.png".format(self.plot_attention, self.plot_attention_counter),
                         600)
+      self.plot_attention_counter += 1
       
     # Adding dropout and layer normalization
     res = dy.dropout(out, p) + residual
