@@ -12,8 +12,8 @@ from xnmt.expression_sequence import ExpressionSequence
 from xnmt.vocab import Vocab
 from xnmt.events import register_xnmt_event_assign, register_handler
 from xnmt.generator import GeneratorModel
-from xnmt.serializer import Serializable, DependentInitParam
-from xnmt.search_strategy import BeamSearch, GreedySearch, TransformerBeamSearch
+from xnmt.serializer import Serializable
+from xnmt.search_strategy import BeamSearch, GreedySearch
 from xnmt.output import TextOutput
 from xnmt.reports import Reportable
 import xnmt.serializer
