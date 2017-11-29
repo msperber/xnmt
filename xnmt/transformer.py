@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from sklearn.metrics.pairwise import cosine_similarity
 import dynet as dy
 import math
 import numpy as np
@@ -135,6 +136,13 @@ class MultiHeadedAttention(object):
     if self.downsample_factor > 1:
       attn_prod = dy.strided_select(attn_prod, [self.downsample_factor], [], [])
     
+
+    # Reshaping the attn_prod to input query dimensions
+#     temp = dy.reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), batch_size=batch_size)
+#     temp = dy.transpose(temp)
+#     out = dy.reshape(temp, (self.model_dim,), batch_size=batch_size*sent_len_out)
+    out = dy.reshape_transpose_reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), (self.model_dim,), pre_batch_size=batch_size, post_batch_size=batch_size*sent_len_out)
+
     if self.plot_attention:
       assert batch_size==1
       mats = []
@@ -148,13 +156,16 @@ class MultiHeadedAttention(object):
                         "{}.sent_{}.head_avg.png".format(self.plot_attention, self.plot_attention_counter),
                         300)
       self.plot_attention_counter += 1
-
-    # Reshaping the attn_prod to input query dimensions
-#     temp = dy.reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), batch_size=batch_size)
-#     temp = dy.transpose(temp)
-#     out = dy.reshape(temp, (self.model_dim,), batch_size=batch_size*sent_len_out)
-    out = dy.reshape_transpose_reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), (self.model_dim,), pre_batch_size=batch_size, post_batch_size=batch_size*sent_len_out)
-
+      in_val = value or key
+      cosim_before = cosine_similarity(in_val.as_tensor().npvalue())
+      self.plot_att_mat(cosim_before, 
+                        "{}.sent_{}.cosim_before.png".format(self.plot_attention, self.plot_attention_counter),
+                        600)
+      cosim_after = cosine_similarity(out.npvalue().T)
+      self.plot_att_mat(cosim_after, 
+                        "{}.sent_{}.cosim_after.png".format(self.plot_attention, self.plot_attention_counter),
+                        600)
+      
     # Adding dropout and layer normalization
     res = dy.dropout(out, p) + residual
     ret = self.layer_norm(res)
