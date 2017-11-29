@@ -156,7 +156,7 @@ class MultiHeadedAttention(object):
                         "{}.sent_{}.head_avg.png".format(self.plot_attention, self.plot_attention_counter),
                         300)
       in_val = value or key
-      cosim_before = cosine_similarity(in_val.as_tensor().T.npvalue())
+      cosim_before = cosine_similarity(in_val.as_tensor().npvalue().T)
       self.plot_att_mat(cosim_before, 
                         "{}.sent_{}.cosim_before.png".format(self.plot_attention, self.plot_attention_counter),
                         600)
