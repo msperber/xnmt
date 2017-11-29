@@ -34,7 +34,7 @@ from xnmt.segmenting_encoder import *
 from xnmt.loss import LossBuilder
 from xnmt.model_context import ModelContext, PersistentParamCollection
 from xnmt.training_strategy import TrainingStrategy, TrainingMLELoss
-from xnmt.serializer import YamlSerializer, Serializable
+from xnmt.serializer import YamlSerializer, Serializable, DependentInitParam
 import xnmt.xnmt_decode
 import xnmt.xnmt_evaluate
 from xnmt.evaluator import LossScore
