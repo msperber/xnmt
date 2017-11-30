@@ -101,8 +101,8 @@ class MultiHeadedAttention(object):
       value_up = shape_projection(self.linear_values(TimeDistributed()(value)))
       query_up = shape_projection(self.linear_query(TimeDistributed()(query)))
 
-    scaled = query_up * dy.transpose(key_up) # ((T,dim_per_head),head_count*batchsize) * ((dim_per_head,T),head_count*batchsize)
-    scaled = scaled / math.sqrt(self.dim_per_head)
+#     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
+    scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head)) # scale before the matrix multiplication to save memory
 
     # Apply Mask here
     if not self.ignore_masks:
