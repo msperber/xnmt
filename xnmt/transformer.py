@@ -235,7 +235,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
                ignore_masks=False, broadcast_masks=False, plot_attention=None,
-               nonlinearity=None):
+               nonlinearity=None, positional_encoding=False):
     register_handler(self)
     param_col = yaml_context.dynet_param_collection.param_col
     self.input_dim = input_dim
@@ -244,6 +244,8 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
     nonlinearity = nonlinearity or yaml_context.nonlinearity
     self.layers = layers
     self.modules = []
+    self.positional_encoding = positional_encoding
+    self.position_encoding_block = None
     for layer_i in range(layers):
       if plot_attention is not None:
         plot_attention_layer = "{}.layer_{}".format(plot_attention, layer_i)
@@ -261,6 +263,10 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   nonlinearity=nonlinearity))
 
   def __call__(self, sent):
+    if self.positional_encoding:
+      if self.position_encoding_block is None or self.position_encoding_block.shape[2] < len(sent):
+        self.initialize_position_encoding(int(len(sent) * 1.2), self.input_dim)
+      sent = ExpressionSequence(expr_tensor=sent.as_tensor() + dy.inputTensor(self.position_encoding_block[0, :, :len(sent)]), mask=sent.mask)
     for module in self.modules:
       enc_sent = module.transduce(sent)
       sent = enc_sent
@@ -272,5 +278,15 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
     for module in self.modules:
       module.set_dropout(self.dropout if val else 0.0)
 
-
+  def initialize_position_encoding(self, length, n_units):
+    # Implementation in the Google tensor2tensor repo
+    channels = n_units
+    position = np.arange(length, dtype='f')
+    num_timescales = channels // 2
+    log_timescale_increment = (np.log(10000. / 1.) / (float(num_timescales) - 1))
+    inv_timescales = 1. * np.exp(np.arange(num_timescales).astype('f') * -log_timescale_increment)
+    scaled_time = np.expand_dims(position, 1) * np.expand_dims(inv_timescales, 0)
+    signal = np.concatenate([np.sin(scaled_time), np.cos(scaled_time)], axis=1)
+    signal = np.reshape(signal, [1, length, channels])
+    self.position_encoding_block = np.transpose(signal, (0, 2, 1))
 
