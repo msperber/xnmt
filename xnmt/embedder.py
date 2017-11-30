@@ -216,7 +216,7 @@ class NoopEmbedder(Embedder, Serializable):
           embeddings.append(self.embed(xnmt.batcher.mark_as_batch([single_sent[word_i] for single_sent in sent])))
       return ExpressionSequence(expr_list=embeddings, mask=sent.mask)
 
-def read_fasttext_embeddings(emb_dim, vocab, embeddings_file_handle):
+def read_fasttext_embeddings(emb_dim, vocab, embeddings_file_handle, case_sensitive=False):
   """
   Reads FastText embeddings from a file. Also prints stats about the loaded embeddings for sanity checking.
 
@@ -240,11 +240,27 @@ def read_fasttext_embeddings(emb_dim, vocab, embeddings_file_handle):
 
   embeddings = np.empty((len(vocab), emb_dim), dtype='float')
   found = np.zeros(len(vocab), dtype='bool_')
+  
+  if not case_sensitive:
+    lc_matches = {}
+    for key in vocab.w2i:
+      key_lc = key.lower()
+      if not key_lc in lc_matches:
+        lc_matches[key_lc] = []
+      else:
+        lc_matches[key_lc].append(key)
 
   for line in embeddings_file_handle:
     total_embs += 1
     word, vals = line.strip().split(' ', 1)
-    if word in vocab.w2i:
+    if not case_sensitive:
+      if word in lc_matches:
+        for key in lc_matches[word]:
+          in_vocab += 1
+          index = vocab.w2i[key]
+          embeddings[index] = np.fromstring(vals, sep=" ")
+          found[index] = True
+    elif word in vocab.w2i:
       in_vocab += 1
       index = vocab.w2i[word]
       embeddings[index] = np.fromstring(vals, sep=" ")
