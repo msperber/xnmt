@@ -19,6 +19,9 @@ speech-self-att:
         train_trg: examples/data/synth.char
         dev_src: examples/data/synth.contvec.npz
         dev_trg: examples/data/synth.char
+    glob:
+      dropout: 0.5
+      nonlinearity: silu
     model: !DefaultTranslator
       src_embedder: !NoopEmbedder
         emb_dim: 240

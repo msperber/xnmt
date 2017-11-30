@@ -16,7 +16,7 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
     
   def __init__(self, yaml_context, init_gauss_var=0.1, weight_noise=0.0,
                layers=1, input_dim=120, chn_dim=3, num_filters=32, stride=(2,2), 
-               batch_norm=False, nonlinearity="relu", pre_activation=False,
+               batch_norm=False, nonlinearity=None, pre_activation=False,
                output_tensor=False, transpose=True):
     """
     :param param_col:
@@ -29,7 +29,7 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
     :param num_filters: channel output dimension
     :param stride: tuple, downsample via striding
     :param batch_norm: apply batch normalization before the nonlinearity. Normalization is performed over batch, time, and frequency dimensions (and not over the channel dimension).
-    :param nonlinearity: "rely" / "maxout" / None (note: "maxout" will double number of filter parameters, but leave output dimension unchanged)
+    :param nonlinearity: e.g. "rectify" / "silu" / ... / "maxout" / None (note: "maxout" will double number of filter parameters, but leave output dimension unchanged)
     :param pre_activation: If True, please BN + nonlinearity before CNN
     :param output_transposed_tensor: True -> output is a expression sequence holding a 3d-tensor (including channel dimension), in transposed form (time is first dimension)
                                      False -> output is a expression sequence holding a list of flat vector expressions (frequency and channel dimensions are merged)
@@ -48,7 +48,7 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
     self.filter_size_freq = 3
     self.stride = stride
     self.output_transposed_tensor = output_tensor
-    self.nonlinearity = nonlinearity
+    self.nonlinearity = nonlinearity or yaml_context.nonlinearity
     self.pre_activation = pre_activation
     
     self.use_bn = batch_norm
@@ -63,10 +63,10 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
       filters = param_col.add_parameters(dim=(self.filter_size_time,
                                           self.filter_size_freq,
                                           self.chn_dim if layer_i==0 else self.num_filters,
-                                          self.num_filters * (2 if nonlinearity=="maxout" else 1)),
+                                          self.num_filters * (2 if self.nonlinearity=="maxout" else 1)),
                                      init=normalInit)
       if self.use_bn:
-        self.bn_layers.append(BatchNorm(param_col, (self.chn_dim if self.pre_activation else self.num_filters) * (2 if nonlinearity=="maxout" else 1), 3))
+        self.bn_layers.append(BatchNorm(param_col, (self.chn_dim if self.pre_activation else self.num_filters) * (2 if self.nonlinearity=="maxout" else 1), 3))
       self.filters_layers.append(filters)
   
   @handle_xnmt_event
@@ -99,8 +99,10 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
     return dy.concatenate([expr, dy.zeroes((pad_size, self.freq_dim * self.chn_dim), batch_size=expr.dim()[1])]) # TODO: replicate last frame instead of padding zeros
 
   def apply_nonlinearity(self, nonlinearity, expr):
-    if nonlinearity=="relu":
+    if nonlinearity=="rectify":
       return dy.rectify(expr)
+    if nonlinearity=="silu":
+      return dy.silu(expr)
     elif nonlinearity=="maxout":
       raise NotImplementedError("maxout not yet implemented")
       # TODO:
@@ -163,7 +165,7 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!PoolingConvSeqTransducer'
   
   def __init__(self, yaml_context, input_dim, pooling=[None, (1,1)], chn_dim=3, num_filters=32, 
-               output_tensor=False, nonlinearity="relu", init_gauss_var=0.1):
+               output_tensor=False, nonlinearity=None, init_gauss_var=0.1):
     """
     :param layers: encoder depth
     :param input_dim: size of the inputs, before factoring out the channels.
@@ -187,7 +189,7 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
     self.filter_size_freq = 3
     self.pooling = pooling
     self.output_tensor = output_tensor
-    self.nonlinearity = nonlinearity
+    self.nonlinearity = nonlinearity or yaml_context.nonlinearity
     
     normalInit=dy.NormalInitializer(0, init_gauss_var)
     self.bn_layers = []
@@ -201,7 +203,7 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
                                           self.num_filters),
                                      init=normalInit)
       self.filters_layers.append(filters)
-      if nonlinearity=="maxout":
+      if self.nonlinearity=="maxout":
         filters_alt = model.add_parameters(dim=(self.filter_size_time,
                                           self.filter_size_freq,
                                           self.chn_dim if layer_i==0 else self.num_filters,
@@ -259,8 +261,10 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
       if self.nonlinearity=="maxout":
         filters_alt = self.filters_alt_layers[layer_i]
         cnn_layer_alt = dy.conv2d(cnn_layer_prev, dy.parameter(filters_alt), stride=(1,1), is_valid=True)
-      if self.nonlinearity=="relu":
+      if self.nonlinearity=="rectify":
         cnn_layer = dy.rectify(cnn_layer)
+      elif self.nonlinearity=="silu":
+        cnn_layer = dy.silu(cnn_layer)
       elif self.nonlinearity=="maxout":
         cnn_layer = dy.bmax(cnn_layer, cnn_layer_alt)
       elif self.nonlinearity is not None:

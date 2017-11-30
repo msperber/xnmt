@@ -89,13 +89,13 @@ class TimePadder(object):
 
 class NiNLayer(SeqTransducer):
   def __init__(self, yaml_context, input_dim, hidden_dim, use_proj=True,
-               use_bn=True, nonlinearity="relu", downsampling_factor=1):
+               use_bn=True, nonlinearity="rectify", downsampling_factor=1):
     register_handler(self)
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
     self.use_proj = use_proj
     self.use_bn = use_bn
-    self.nonlinearity = nonlinearity
+    self.nonlinearity = getattr(dy, nonlinearity)
     self.downsampling_factor = downsampling_factor
     self.timePadder = TimePadder(mode="zero")
     if downsampling_factor < 1: raise ValueError("downsampling_factor must be >= 1")
@@ -147,23 +147,15 @@ class NiNLayer(SeqTransducer):
       bn_layer = self.bn(dy.concatenate(projections, 1), 
                          train=self.train,
                          mask=mask_out)
-      nonlin = self.apply_nonlinearity(bn_layer, self.nonlinearity)
+      nonlin = self.nonlinearity(bn_layer)
       return ExpressionSequence(expr_tensor=nonlin, mask=mask_out)
     else:
       es = []
       for proj in projections:
-        nonlin = self.apply_nonlinearity(proj, self.nonlinearity)
+        nonlin = self.nonlinearity(proj)
         es.append(nonlin)
       return ExpressionSequence(expr_list=es, mask=mask_out)
 
-  def apply_nonlinearity(self, expr, nonlinearity):
-    if nonlinearity is None:
-      return expr
-    elif nonlinearity.lower()=="relu":
-      return dy.rectify(expr)
-    else:
-      raise RuntimeError("unknown nonlinearity %s" % nonlinearity)
-  
   @handle_xnmt_event
   def on_set_train(self, val):
     self.train = val
@@ -203,7 +195,7 @@ class TimeDistributed(object):
 
 
 class PositionwiseFeedForward(object):
-  def __init__(self, input_dim, hidden_dim, model):
+  def __init__(self, input_dim, hidden_dim, model, nonlinearity="rectify"):
     """
     Args:
         input_dim(int): the size of input for the first-layer of the FFN.
@@ -213,10 +205,11 @@ class PositionwiseFeedForward(object):
     self.w_1 = Linear(input_dim, hidden_dim, model)
     self.w_2 = Linear(hidden_dim, input_dim, model)
     self.layer_norm = LayerNorm(input_dim, model)
+    self.nonlinearity = getattr(dy,nonlinearity)
 
   def __call__(self, x, p):
     residual = x
-    output = dy.dropout(self.w_2(dy.rectify(self.w_1(x))), p)
+    output = dy.dropout(self.w_2(self.nonlinearity(self.w_1(x))), p)
     return self.layer_norm(output + residual)
 
 class PositionwiseLinear(object):

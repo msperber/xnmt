@@ -8,8 +8,9 @@ class ModelContext(Serializable):
     self.dropout = 0.0
     self.weight_noise = 0.0
     self.default_layer_dim = 512
+    self.nonlinearity = "rectify"
     self.dynet_param_collection = None
-    self.serialize_params = ["dropout", "weight_noise", "default_layer_dim"]
+    self.serialize_params = ["dropout", "weight_noise", "default_layer_dim", "nonlinearity"]
   def update(self, other):
     for param in self.serialize_params:
       setattr(self, param, getattr(other, param))

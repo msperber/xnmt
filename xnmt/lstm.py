@@ -352,7 +352,7 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
   def __init__(self, yaml_context, 
                layers, input_dim, hidden_dim,  
                nin_enabled=True, nin_depth=1, stride=1,
-               batch_norm=False, nonlinearity="relu", pre_activation=False, 
+               batch_norm=False, nonlinearity=None, pre_activation=False, 
                weight_norm=False, weight_noise = None, dropout=None):
     """
     :param yaml_context:
@@ -363,7 +363,7 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
     :param nin_depth: number of NiN units (downsampling only performed for first projection)
     :param stride: in (first) projection layer, concatenate n frames and thus use the projection for downsampling
     :param batch_norm: uses batch norm between projection and non-linearity
-    :param nonlinearity: "rely" or None
+    :param nonlinearity:
     :param pre_activation: True: BN -> relu -> LSTM -> [NiN -> ...] -> proj
                            False: LSTM -> [NiN -> ...]
     """
@@ -371,12 +371,13 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
     assert hidden_dim % 2 == 0
     assert nin_depth > 0
     register_handler(self)
+    
     self.builder_layers = []
     self.hidden_dim = hidden_dim
     self.stride=stride
     self.nin_depth = nin_depth
     self.nin_enabled = nin_enabled
-    self.nonlinearity = nonlinearity
+    self.nonlinearity = nonlinearity or yaml_context.nonlinearity
     self.pre_activation = pre_activation
     f = UniLSTMSeqTransducer(yaml_context, input_dim, hidden_dim / 2, dropout=dropout, 
                              weight_norm=weight_norm, weightnoise_std = weight_noise)

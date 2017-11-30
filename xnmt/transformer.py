@@ -128,7 +128,10 @@ class MultiHeadedAttention(object):
     attn = dy.softmax(scaled, d=1)
 
     # Applying dropout to attention
-    drop_attn = dy.dropout(attn, p)
+    if p>0.0:
+      drop_attn = dy.dropout(attn, p)
+    else:
+      drop_attn = attn
 
     # Computing weighted attention score
     attn_prod = drop_attn * value_up
@@ -167,7 +170,10 @@ class MultiHeadedAttention(object):
       self.plot_attention_counter += 1
       
     # Adding dropout and layer normalization
-    res = dy.dropout(out, p) + residual
+    if p>0.0:
+      res = dy.dropout(out, p) + residual
+    else:
+      res = out + residual
     ret = self.layer_norm(res)
     return ret
 
@@ -175,11 +181,11 @@ class MultiHeadedAttention(object):
 class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False, broadcast_masks=False,
-               plot_attention=None):
+               plot_attention=None, nonlinearity="rectify"):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
                                           input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
                                           broadcast_masks=broadcast_masks, plot_attention=plot_attention)
-    self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model)  # Feed Forward
+    self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity)
     self.head_count = head_count
     self.downsample_factor = downsample_factor
     self.diagonal_mask_width = diagonal_mask_width
@@ -228,12 +234,14 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
   def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=512, 
                head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
-               ignore_masks=False, broadcast_masks=False, plot_attention=None):
+               ignore_masks=False, broadcast_masks=False, plot_attention=None,
+               nonlinearity=None):
     register_handler(self)
     param_col = yaml_context.dynet_param_collection.param_col
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
     self.dropout = dropout or yaml_context.dropout
+    nonlinearity = nonlinearity or yaml_context.nonlinearity
     self.layers = layers
     self.modules = []
     for layer_i in range(layers):
@@ -249,7 +257,8 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   mask_self=mask_self,
                                                   ignore_masks=ignore_masks,
                                                   broadcast_masks=broadcast_masks,
-                                                  plot_attention=plot_attention_layer))
+                                                  plot_attention=plot_attention_layer,
+                                                  nonlinearity=nonlinearity))
 
   def __call__(self, sent):
     for module in self.modules:
