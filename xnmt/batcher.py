@@ -86,7 +86,7 @@ class Mask(object):
       unmasked = dy.cmult(tensor_expr, inv_mask_expr)
       unmasked_mean = unmasked
       while sum(unmasked_mean.dim()[0]) > 1: # loop because mean_dim only supports reducing up to 2 dimensions at a time
-        unmasked_mean = dy.mean_dim(unmasked_mean, range(min(2,len(unmasked_mean.dim()[0]))), unmasked_mean.dim()[1]>1, n=1) # this is mean without normalization == sum
+        unmasked_mean = dy.mean_dim(unmasked_mean, list(range(min(2,len(unmasked_mean.dim()[0])))), unmasked_mean.dim()[1]>1, n=1) # this is mean without normalization == sum
       unmasked_mean = dy.cdiv(unmasked_mean, dy.inputTensor(np.asarray([(self.np_arr.size - np.count_nonzero(self.np_arr)) * self.broadcast_factor(tensor_expr)]), batched=False))
       mask_expr = dy.cmult(dy.inputTensor(np.reshape(self.np_arr.transpose(), reshape_size), batched=True), unmasked_mean)
       ret = unmasked + mask_expr

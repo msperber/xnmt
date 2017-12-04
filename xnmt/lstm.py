@@ -384,7 +384,7 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
     b = UniLSTMSeqTransducer(yaml_context, input_dim, hidden_dim / 2, dropout=dropout, 
                              weight_norm=weight_norm, weightnoise_std = weight_noise)
     self.builder_layers.append((f, b))
-    for _ in xrange(layers - 1):
+    for _ in range(layers - 1):
       f = UniLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim / 2, dropout=dropout, 
                               weight_norm=weight_norm, weightnoise_std = weight_noise)
       b = UniLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim / 2, dropout=dropout, 
@@ -395,37 +395,37 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
     if not nin_enabled:
       assert self.stride == 1
       self.nin_layers.append([]) # no pre-activation
-      for _ in xrange(layers):
+      for _ in range(layers):
         self.nin_layers.append([NiNLayer(yaml_context, input_dim=hidden_dim/2, hidden_dim=hidden_dim,
-                                         use_bn=False, nonlinearity=None, use_proj=False, 
+                                         use_bn=False, nonlinearity="id", use_proj=False, 
                                          downsampling_factor=2)])
     else:
       if pre_activation:
         # first pre-activation
         self.nin_layers.append([NiNLayer(yaml_context, input_dim=input_dim, hidden_dim=input_dim,
-                                         use_proj=False, use_bn=batch_norm, nonlinearity=nonlinearity)])
-        for _ in xrange(layers-1):
+                                         use_proj=False, use_bn=batch_norm, nonlinearity=self.nonlinearity)])
+        for _ in range(layers-1):
           nin_layer = []
-          for nin_i in xrange(nin_depth):
+          for nin_i in range(nin_depth):
             nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
                                       use_bn=batch_norm, nonlinearity=self.nonlinearity, 
                                       downsampling_factor=2*self.stride if nin_i==0 else 1))
           self.nin_layers.append(nin_layer)
         nin_layer = []
-        for nin_i in xrange(nin_depth-1):
+        for nin_i in range(nin_depth-1):
           nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
                                     use_bn=batch_norm, nonlinearity=self.nonlinearity, 
                                     downsampling_factor=2*self.stride if nin_i==0 else 1))
         # very last layer: counterpiece to the first pre-activation
         nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_depth==1 else hidden_dim, hidden_dim=hidden_dim, 
-                                  use_proj=True, use_bn=False, nonlinearity=None,
+                                  use_proj=True, use_bn=False, nonlinearity="id",
                                   downsampling_factor=2*self.stride if nin_depth==1 else 1))
         self.nin_layers.append(nin_layer)
       else:
         self.nin_layers.append([]) # no pre-activation
-        for _ in xrange(layers):
+        for _ in range(layers):
           nin_layer = []
-          for nin_i in xrange(nin_depth):
+          for nin_i in range(nin_depth):
             nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
                                       use_bn=batch_norm, nonlinearity=self.nonlinearity, 
                                       downsampling_factor=2*self.stride if nin_i==0 else 1))

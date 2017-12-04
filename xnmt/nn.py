@@ -95,7 +95,10 @@ class NiNLayer(SeqTransducer):
     self.hidden_dim = hidden_dim
     self.use_proj = use_proj
     self.use_bn = use_bn
-    self.nonlinearity = getattr(dy, nonlinearity)
+    if nonlinearity=="id":
+      self.nonlinearity = lambda x: x
+    else:
+      self.nonlinearity = getattr(dy, nonlinearity or yaml_context.non_linearity)
     self.downsampling_factor = downsampling_factor
     self.timePadder = TimePadder(mode="zero")
     if downsampling_factor < 1: raise ValueError("downsampling_factor must be >= 1")

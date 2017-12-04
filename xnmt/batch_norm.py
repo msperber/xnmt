@@ -28,8 +28,8 @@ class BatchNorm(object):
       raise NotImplementedError("BatchNorm not implemented for num_dim > 3")
     
   def get_stat_dimensions(self):
-    if self.time_first: return range(self.num_dim-1)
-    else: return range(1, self.num_dim)
+    if self.time_first: return list(range(self.num_dim-1))
+    else: return list(range(1, self.num_dim))
 
   def __call__(self, input_expr, train, mask=None):
     """
