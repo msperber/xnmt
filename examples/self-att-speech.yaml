@@ -26,18 +26,19 @@ speech-self-att:
       src_embedder: !NoopEmbedder
         emb_dim: 240
       encoder: !TransformerSeqTransducer
-        layers: 2
+        layers: 1
         input_dim: 240
         hidden_dim: 512
         ff_hidden_dim: 512
-        downsample_factor: 2
+        downsample_factor: 5
         diagonal_mask_width: ~
         mask_self: True
-        ignore_masks: False
+        ignore_masks: True
         broadcast_masks: False
-        plot_attention: examples/output/<EXP>.self-att
+        plot_attention: ~ #examples/output/<EXP>.self-att
         positional_encoding: True
-        diag_gauss_mask: 3
+        diag_gauss_mask: False
+        downsampling_method: reshape
       attender: !MlpAttender
         state_dim: 64
         hidden_dim: 64

@@ -237,7 +237,7 @@ class TrainingRegimen(Serializable):
       loss_value = loss_builder.compute()
       self.logger.update_epoch_loss(src, trg, loss_builder)
       
-      if self.dynet_profiling > 0:
+      if self.dynet_profiling and self.dynet_profiling > 0:
         dy.print_text_graphviz()
         
       if update_weights:

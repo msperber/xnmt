@@ -68,7 +68,7 @@ class MlpAttender(Attender, Serializable):
     scores = dy.transpose(U * h)
     if self.curr_sent.mask is not None:
       scores = self.curr_sent.mask.add_to_tensor_expr(scores, multiplicator = -100.0, time_first=True)
-    if self.train and self.dropout > 0.0 and self.dropout_scores:
+    if self.train and self.dropout and self.dropout > 0.0 and self.dropout_scores:
       dropout_mask = dy.random_bernoulli(scores.dim()[0], self.dropout, batch_size=scores.dim()[1])
       scores = dy.cmult(scores, dropout_mask)
     normalized = dy.softmax(scores)
@@ -79,7 +79,7 @@ class MlpAttender(Attender, Serializable):
     attention = self.calc_attention(state)
     I = self.curr_sent.as_tensor()
     context = I * attention
-    if self.train and self.dropout > 0.0 and not self.dropout_scores:
+    if self.train and self.dropout and self.dropout > 0.0 and not self.dropout_scores:
       context = dy.dropout(context, self.dropout)
     return context
   
