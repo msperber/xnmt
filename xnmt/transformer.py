@@ -13,10 +13,22 @@ from xnmt.events import register_handler, handle_xnmt_event
 MAX_SIZE = 5000
 MIN_VAL = -10000   # This value is close to NEG INFINITY
 
-
 class MultiHeadedAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
-               is_self_att=False, ignore_masks=False, broadcast_masks=False, plot_attention=None):
+               is_self_att=False, ignore_masks=False, broadcast_masks=False, plot_attention=None,
+               diag_gauss_mask=False):
+    """
+    :param head_count: number of self-att heads
+    :param model_dim: 
+    :param model: dynet param collection
+    :param downsample_factor:
+    :param input_dim:
+    :param is_self_att: if True, expect key=query=value
+    :param ignore_masks: don't apply any masking
+    :param broadcast_masks: if True, broadcast numpy arrays containing masks before calling inputTensor()
+    :param plot_attention: None or path to directory to write plots to
+    :param diag_gauss_mask: False to disable, otherwise a float denoting the std of the mask
+    """
     if input_dim is None: input_dim = model_dim
     self.input_dim = input_dim
     assert model_dim % head_count == 0
@@ -30,6 +42,7 @@ class MultiHeadedAttention(object):
     
     self.ignore_masks = ignore_masks
     self.broadcast_masks = broadcast_masks
+    self.diag_gauss_mask = diag_gauss_mask
     
     self.is_self_att = is_self_att
     
@@ -40,6 +53,9 @@ class MultiHeadedAttention(object):
       self.linear_keys = Linear(input_dim, head_count * self.dim_per_head, model)
       self.linear_values = Linear(input_dim, head_count * self.dim_per_head, model)
       self.linear_query = Linear(input_dim, head_count * self.dim_per_head, model)
+    
+    if self.diag_gauss_mask:
+      self.diag_gauss_mask_sigma = model.add_parameters(dim=(1,1,self.head_count), init=dy.ConstInitializer(self.diag_gauss_mask))
 
     # Layer Norm Module
     self.layer_norm = LayerNorm(model_dim, model)
@@ -123,6 +139,16 @@ class MultiHeadedAttention(object):
           inp = np.asarray(np.broadcast_to(inp, (sent_len, sent_len, self.head_count*batch_size)))
         mask_expr = dy.inputTensor(inp, batched=True)
         scaled += mask_expr
+      if self.diag_gauss_mask:
+        diag_growing = np.zeros((sent_len, sent_len, self.head_count))
+        for i in range(sent_len):
+          for j in range(sent_len):
+            diag_growing[i,j,:] = -(i-j)**2 / 2.0
+        e_diag_gauss_mask = dy.inputTensor(diag_growing)
+        e_sigma = dy.parameter(self.diag_gauss_mask_sigma)
+        e_sigma_sq_inv = dy.cdiv(dy.ones(e_sigma_sq.dim()[0], batch_size=batch_size), dy.square(e_sigma))
+        e_diag_gauss_mask_final = dy.cmult(e_diag_gauss_mask, e_sigma_sq_inv)
+        scaled += dy.reshape(e_diag_gauss_mask_final, (sent_len, sent_len), batch_size=batch_size * self.head_count)
 
     # Computing Softmax here.
     attn = dy.softmax(scaled, d=1)
@@ -181,10 +207,11 @@ class MultiHeadedAttention(object):
 class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False, broadcast_masks=False,
-               plot_attention=None, nonlinearity="rectify"):
+               plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
                                           input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
-                                          broadcast_masks=broadcast_masks, plot_attention=plot_attention)
+                                          broadcast_masks=broadcast_masks, plot_attention=plot_attention,
+                                          diag_gauss_mask=diag_gauss_mask)
     self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity)
     self.head_count = head_count
     self.downsample_factor = downsample_factor
@@ -235,7 +262,8 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
                ignore_masks=False, broadcast_masks=False, plot_attention=None,
-               nonlinearity=None, positional_encoding=False):
+               nonlinearity=None, positional_encoding=False,
+               diag_gauss_mask=False):
     register_handler(self)
     param_col = yaml_context.dynet_param_collection.param_col
     self.input_dim = input_dim
@@ -260,7 +288,8 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   ignore_masks=ignore_masks,
                                                   broadcast_masks=broadcast_masks,
                                                   plot_attention=plot_attention_layer,
-                                                  nonlinearity=nonlinearity))
+                                                  nonlinearity=nonlinearity,
+                                                  diag_gauss_mask=diag_gauss_mask))
 
   def __call__(self, sent):
     if self.positional_encoding:
