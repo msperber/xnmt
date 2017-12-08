@@ -97,7 +97,8 @@ class MultiHeadedAttention(object):
         sent_len_out = len(strided_query)
       else:
         assert self.downsampling_method == "reshape"
-        assert sent_len % self.downsample_factor == 0
+        if sent_len % self.downsample_factor != 0:
+          raise ValueError("For 'reshape' downsampling, sequence lengths must be multiples of the downsampling factor. Configure batcher accordingly.")
         sent_len_out = sent_len / self.downsample_factor
         sent_len = sent_len_out
         out_mask = key.mask

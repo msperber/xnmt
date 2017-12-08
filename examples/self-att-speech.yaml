@@ -10,6 +10,7 @@ speech-self-att:
     src_format: contvec
     batcher: !SrcBatcher
       batch_size: 5
+      pad_to_multiple: 4
     corpus_parser: !BilingualCorpusParser
       src_reader: !ContVecReader
         transpose: True
@@ -26,11 +27,11 @@ speech-self-att:
       src_embedder: !NoopEmbedder
         emb_dim: 240
       encoder: !TransformerSeqTransducer
-        layers: 1
+        layers: 2
         input_dim: 240
         hidden_dim: 512
         ff_hidden_dim: 512
-        downsample_factor: 5
+        downsample_factor: 2
         diagonal_mask_width: ~
         mask_self: True
         ignore_masks: True

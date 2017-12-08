@@ -122,7 +122,8 @@ class NiNLayer(SeqTransducer):
 
     if self.use_proj:
       if len(es) % self.downsampling_factor!=0:
-        es = self.timePadder(es, pad_len = self.downsampling_factor - (len(es) % self.downsampling_factor))
+        raise ValueError("For downsampling with activated use_proj, sequence lengths must be multiples of the total reduce factor. Configure batcher accordingly.")
+#         es = self.timePadder(es, pad_len = self.downsampling_factor - (len(es) % self.downsampling_factor))
 
     if es.mask is None: mask_out = None
     else:
