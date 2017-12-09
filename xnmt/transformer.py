@@ -177,7 +177,7 @@ class MultiHeadedAttention(object):
             diag_growing[i,j,:] = -(i-j)**2 / 2.0
         e_diag_gauss_mask = dy.inputTensor(diag_growing)
         e_sigma = dy.parameter(self.diag_gauss_mask_sigma)
-        e_sigma_sq_inv = dy.cdiv(dy.ones(e_sigma_sq.dim()[0], batch_size=batch_size), dy.square(e_sigma))
+        e_sigma_sq_inv = dy.cdiv(dy.ones(e_sigma.dim()[0], batch_size=batch_size), dy.square(e_sigma))
         e_diag_gauss_mask_final = dy.cmult(e_diag_gauss_mask, e_sigma_sq_inv)
         scaled += dy.reshape(e_diag_gauss_mask_final, (sent_len, sent_len), batch_size=batch_size * self.head_count)
 
