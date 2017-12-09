@@ -49,7 +49,8 @@ class MultiHeadedAttention(object):
     self.is_self_att = is_self_att
     
     if is_self_att:
-      self.linear_kvq = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head * 3, model)
+      self.linear_kvq = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor,
+                               head_count * self.dim_per_head * 3, model)
       
     else:
       self.linear_keys = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model)
@@ -118,8 +119,12 @@ class MultiHeadedAttention(object):
     else:
       residual = TimeDistributed()(query or key)
       sent_len_out = sent_len
-    if self.model_dim!=self.input_dim:
-      residual = self.res_shortcut(residual)
+    if self.downsampling_method=="reshape":
+      if self.model_dim!=self.input_dim*self.downsample_factor:
+        residual = self.res_shortcut(residual)
+    else:
+      if self.model_dim!=self.input_dim:
+        residual = self.res_shortcut(residual)
       
       
 
