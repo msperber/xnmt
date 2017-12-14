@@ -1,7 +1,6 @@
 import math
 import dynet as dy
 from xnmt.serializer import Serializable
-from xnmt.events import register_handler, handle_xnmt_event
 
 class Attender(object):
   '''
@@ -20,6 +19,7 @@ class Attender(object):
   def calc_attention(self, state):
     raise NotImplementedError('calc_attention must be implemented for Attender subclasses')
 
+
 class MlpAttender(Attender, Serializable):
   '''
   Implements the attention model of Bahdanau et. al (2014)
@@ -27,9 +27,7 @@ class MlpAttender(Attender, Serializable):
 
   yaml_tag = u'!MlpAttender'
 
-  def __init__(self, yaml_context, input_dim=None, state_dim=None, hidden_dim=None,
-               dropout=None, dropout_scores=False):
-    register_handler(self)
+  def __init__(self, yaml_context, input_dim=None, state_dim=None, hidden_dim=None):
     input_dim = input_dim or yaml_context.default_layer_dim
     state_dim = state_dim or yaml_context.default_layer_dim
     hidden_dim = hidden_dim or yaml_context.default_layer_dim
@@ -42,9 +40,6 @@ class MlpAttender(Attender, Serializable):
     self.pb = param_collection.add_parameters(hidden_dim)
     self.pU = param_collection.add_parameters((1, hidden_dim))
     self.curr_sent = None
-    self.dropout = dropout # TODO: or yaml_context.dropout
-    self.dropout_scores = dropout_scores
-    self.train = False
 
   def init_sent(self, sent):
     self.attention_vecs = []
@@ -68,9 +63,6 @@ class MlpAttender(Attender, Serializable):
     scores = dy.transpose(U * h)
     if self.curr_sent.mask is not None:
       scores = self.curr_sent.mask.add_to_tensor_expr(scores, multiplicator = -100.0, time_first=True)
-    if self.train and self.dropout and self.dropout > 0.0 and self.dropout_scores:
-      dropout_mask = dy.random_bernoulli(scores.dim()[0], self.dropout, batch_size=scores.dim()[1])
-      scores = dy.cmult(scores, dropout_mask)
     normalized = dy.softmax(scores)
     self.attention_vecs.append(normalized)
     return normalized
@@ -79,14 +71,8 @@ class MlpAttender(Attender, Serializable):
     attention = self.calc_attention(state)
     I = self.curr_sent.as_tensor()
     context = I * attention
-    if self.train and self.dropout and self.dropout > 0.0 and not self.dropout_scores:
-      context = dy.dropout(context, self.dropout)
     return context
   
-  @handle_xnmt_event
-  def on_set_train(self, val):
-    self.train = val
-
 
 class DotAttender(Attender, Serializable):
   '''
