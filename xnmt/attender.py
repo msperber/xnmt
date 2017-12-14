@@ -19,6 +19,26 @@ class Attender(object):
   def calc_attention(self, state):
     raise NotImplementedError('calc_attention must be implemented for Attender subclasses')
 
+class MultiHeadMlpAttender(Attender, Serializable):
+  yaml_tag = u'!MultiHeadMlpAttender'
+  
+  def __init__(self, yaml_context, input_dim, state_dim, hidden_dim, num_heads=8):
+    """
+    :param yaml_context:
+    :param input_dim:
+    :param state_dim:
+    :param hidden_dim:
+    :param num_heads: decoder input dim must equal num_heads x input_dim
+    """
+    self.attenders = [MlpAttender(yaml_context, input_dim, state_dim, hidden_dim) for _ in range(num_heads)]
+  def init_sent(self, sent):
+    for attender in self.attenders:
+      attender.init_sent(sent)
+  def calc_context(self, state):
+    attns = []
+    for attender in self.attenders:
+      attns.append(attender.calc_context(state))
+    return dy.concatenate(attns)
 
 class MlpAttender(Attender, Serializable):
   '''
