@@ -22,7 +22,7 @@ class Attender(object):
 class MultiHeadMlpAttender(Attender, Serializable):
   yaml_tag = u'!MultiHeadMlpAttender'
   
-  def __init__(self, yaml_context, input_dim, state_dim, hidden_dim, num_heads=8):
+  def __init__(self, yaml_context, input_dim=None, state_dim=None, hidden_dim=None, num_heads=8):
     """
     :param yaml_context:
     :param input_dim:
@@ -30,6 +30,9 @@ class MultiHeadMlpAttender(Attender, Serializable):
     :param hidden_dim:
     :param num_heads: decoder input dim must equal num_heads x input_dim
     """
+    input_dim = input_dim or yaml_context.default_layer_dim
+    state_dim = state_dim or yaml_context.default_layer_dim
+    hidden_dim = hidden_dim or yaml_context.default_layer_dim
     self.attenders = [MlpAttender(yaml_context, input_dim, state_dim, hidden_dim) for _ in range(num_heads)]
   def init_sent(self, sent):
     for attender in self.attenders:
