@@ -77,6 +77,11 @@ class MultiHeadedAttention(object):
     fig.clf()
     plt.close('all')
 
+  def shape_projection(self, x, batch_size):
+    total_words = x.dim()[1]
+    seq_len = total_words / batch_size
+    return dy.reshape_transpose_reshape(x, (self.model_dim, seq_len), (seq_len, self.dim_per_head), pre_batch_size=batch_size, post_batch_size=batch_size * self.head_count)
+
   def __call__(self, key, value, query, att_mask, batch_mask, p):
     """
     :param key: DyNet expression of dimensions (input_dim, time) x batch
@@ -126,27 +131,16 @@ class MultiHeadedAttention(object):
       if self.model_dim!=self.input_dim:
         residual = self.res_shortcut(residual)
       
-      
-
-    def shape_projection(x):
-      total_words = x.dim()[1]
-      seq_len = total_words / batch_size
-#       temp = dy.reshape(x, (self.model_dim, seq_len), batch_size=batch_size)
-#       temp = dy.transpose(temp)
-#       temp = dy.reshape(temp, (seq_len, self.dim_per_head), batch_size=batch_size * self.head_count)
-      temp = dy.reshape_transpose_reshape(x, (self.model_dim, seq_len), (seq_len, self.dim_per_head), pre_batch_size=batch_size, post_batch_size=batch_size * self.head_count)
-      return temp
-
     # Concatenate all the words together for doing vectorized affine transform
     if self.is_self_att:
       kvq_lin = self.linear_kvq(TimeDistributed()(key))
-      key_up = shape_projection(dy.pick_range(kvq_lin, 0, self.head_count * self.dim_per_head)) 
-      value_up = shape_projection(dy.pick_range(kvq_lin, self.head_count * self.dim_per_head, 2 * self.head_count * self.dim_per_head))
-      query_up = shape_projection(dy.pick_range(kvq_lin, 2 * self.head_count * self.dim_per_head, 3 * self.head_count * self.dim_per_head))
+      key_up = self.shape_projection(dy.pick_range(kvq_lin, 0, self.head_count * self.dim_per_head), batch_size) 
+      value_up = self.shape_projection(dy.pick_range(kvq_lin, self.head_count * self.dim_per_head, 2 * self.head_count * self.dim_per_head), batch_size)
+      query_up = self.shape_projection(dy.pick_range(kvq_lin, 2 * self.head_count * self.dim_per_head, 3 * self.head_count * self.dim_per_head), batch_size)
     else:
-      key_up = shape_projection(self.linear_keys(TimeDistributed()(key))) 
-      value_up = shape_projection(self.linear_values(TimeDistributed()(value)))
-      query_up = shape_projection(self.linear_query(TimeDistributed()(query)))
+      key_up = self.shape_projection(self.linear_keys(TimeDistributed()(key)), batch_size) 
+      value_up = self.shape_projection(self.linear_values(TimeDistributed()(value)), batch_size)
+      query_up = self.shape_projection(self.linear_query(TimeDistributed()(query)), batch_size)
 
 #     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
     scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head)) # scale before the matrix multiplication to save memory
@@ -198,9 +192,6 @@ class MultiHeadedAttention(object):
     
 
     # Reshaping the attn_prod to input query dimensions
-#     temp = dy.reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), batch_size=batch_size)
-#     temp = dy.transpose(temp)
-#     out = dy.reshape(temp, (self.model_dim,), batch_size=batch_size*sent_len_out)
     out = dy.reshape_transpose_reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), (self.model_dim,), pre_batch_size=batch_size, post_batch_size=batch_size*sent_len_out)
 
     if self.plot_attention:
