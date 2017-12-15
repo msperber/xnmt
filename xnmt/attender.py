@@ -34,14 +34,24 @@ class MultiHeadMlpAttender(Attender, Serializable):
     state_dim = state_dim or yaml_context.default_layer_dim
     hidden_dim = hidden_dim or yaml_context.default_layer_dim
     self.attenders = [MlpAttender(yaml_context, input_dim, state_dim, hidden_dim) for _ in range(num_heads)]
+    self.curr_sent = None
+    
   def init_sent(self, sent):
+    self.curr_sent = sent
     for attender in self.attenders:
       attender.init_sent(sent)
-  def calc_context(self, state):
+  
+  def calc_attention(self, state):
     attns = []
     for attender in self.attenders:
-      attns.append(attender.calc_context(state))
-    return dy.concatenate(attns)
+      attns.append(attender.calc_attention(state))
+    return dy.mean_dim(dy.concatenate_cols(attns), d=[1], b=False)
+
+  def calc_context(self, state):
+    attention = self.calc_attention(state)
+    I = self.curr_sent.as_tensor()
+    context = I * attention
+    return context
 
 class MlpAttender(Attender, Serializable):
   '''

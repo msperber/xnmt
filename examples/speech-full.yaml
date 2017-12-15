@@ -41,7 +41,7 @@ speech-full:
       decoder: !MlpSoftmaxDecoder
         layers: 1
         mlp_hidden_dim: 64
-        input_dim: 512
+        input_dim: 64
         bridge: !NoBridge {}
   decode: !XnmtDecoder
     src_file: examples/data/synth.contvec.npz

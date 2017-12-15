@@ -9,7 +9,7 @@ speech-self-att:
   train: !TrainingRegimen
     src_format: contvec
     batcher: !SrcBatcher
-      batch_size: 5
+      batch_size: 3
       pad_to_multiple: 4
     corpus_parser: !BilingualCorpusParser
       src_reader: !ContVecReader
@@ -34,7 +34,7 @@ speech-self-att:
         downsample_factor: 2
         diagonal_mask_width: ~
         mask_self: True
-        ignore_masks: True
+        ignore_masks: False
         broadcast_masks: False
         plot_attention: ~ #examples/output/<EXP>.self-att
         positional_encoding: True
