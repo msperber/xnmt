@@ -24,6 +24,8 @@ speech-full:
         dev_src: examples/data/synth.contvec.npz
         dev_trg: examples/data/synth.char
     model: !DefaultTranslator
+      sched_samp_max: 0.4
+      sched_samp_epoch: 10
       src_embedder: !NoopEmbedder
         emb_dim: 240
       encoder: !PyramidalLSTMSeqTransducer
@@ -43,6 +45,7 @@ speech-full:
         mlp_hidden_dim: 64
         input_dim: 64
         bridge: !NoBridge {}
+        label_smoothing: 0.1
   decode: !XnmtDecoder
     src_file: examples/data/synth.contvec.npz
   evaluate:

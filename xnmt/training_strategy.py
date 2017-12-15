@@ -1,6 +1,7 @@
 from __future__ import division, generators
 
 import six
+import random
 import dynet as dy
 import numpy as np
 
@@ -10,7 +11,7 @@ from xnmt.vocab import Vocab
 
 import xnmt.evaluator
 import xnmt.linear as linear
-
+import xnmt.batcher
 
 class TrainingStrategy(Serializable):
   '''
@@ -24,14 +25,14 @@ class TrainingStrategy(Serializable):
     else:
       self.loss_calculator = loss_calculator
 
-  def __call__(self, translator, dec_state, src, trg):
-      return self.loss_calculator(translator, dec_state, src, trg)
+  def __call__(self, translator, dec_state, src, trg, trg_sampling_prob=0.0):
+    return self.loss_calculator(translator, dec_state, src, trg, trg_sampling_prob=trg_sampling_prob)
 
 
 class TrainingMLELoss(Serializable):
   yaml_tag = '!TrainingMLELoss'
-
-  def __call__(self, translator, dec_state, src, trg):
+  
+  def __call__(self, translator, dec_state, src, trg, trg_sampling_prob=0.0):
     trg_mask = trg.mask if xnmt.batcher.is_batched(trg) else None
     losses = []
     seq_len = len(trg[0]) if xnmt.batcher.is_batched(src) else len(trg)
@@ -49,6 +50,9 @@ class TrainingMLELoss(Serializable):
         word_loss = trg_mask.cmult_by_timestep_expr(word_loss, i, inverse=True)
       losses.append(word_loss)
       if i < seq_len-1:
+        if trg_sampling_prob > 0.0:
+          sampled_word = translator.decoder.sample_trg(dec_state, trg_sampling_prob)
+          ref_word = xnmt.batcher.Batch([sampled_word[b] if random.random() < trg_sampling_prob else ref_word[b] for b in range(len(sampled_word))])
         dec_state = translator.decoder.add_input(dec_state, translator.trg_embedder.embed(ref_word))
 
     return dy.esum(losses)

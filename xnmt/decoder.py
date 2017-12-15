@@ -1,3 +1,4 @@
+import numpy as np
 import dynet as dy
 from xnmt.serializer import Serializable
 import xnmt.batcher
@@ -150,6 +151,11 @@ class MlpSoftmaxDecoder(RnnDecoder, Serializable):
       ls_loss = -dy.mean_elems(log_prob)
       loss = ((1 - self.label_smoothing) * pre_loss) + (self.label_smoothing * ls_loss)
       return loss
+  
+  def sample_trg(self, mlp_dec_state, sample_prob):
+    scores = self.get_scores(mlp_dec_state)
+    probs = dy.softmax(scores).npvalue()
+    return xnmt.batcher.Batch([np.random.choice(a=range(probs.shape[0]),p=probs[:,i]/sum(probs[:,i])) for i in range(probs.shape[1])])
 
   @handle_xnmt_event
   def on_set_train(self, val):

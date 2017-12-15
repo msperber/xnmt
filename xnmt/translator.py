@@ -10,7 +10,7 @@ import xnmt.length_normalization
 import xnmt.batcher
 from xnmt.expression_sequence import ExpressionSequence
 from xnmt.vocab import Vocab
-from xnmt.events import register_xnmt_event_assign, register_handler
+from xnmt.events import register_xnmt_event_assign, register_handler, handle_xnmt_event
 from xnmt.generator import GeneratorModel
 from xnmt.serializer import Serializable
 from xnmt.search_strategy import BeamSearch, GreedySearch
@@ -55,7 +55,8 @@ class DefaultTranslator(Translator, Serializable, Reportable):
 
   yaml_tag = u'!DefaultTranslator'
 
-  def __init__(self, src_embedder, encoder, attender, trg_embedder, decoder):
+  def __init__(self, src_embedder, encoder, attender, trg_embedder, decoder,
+               sched_samp_max=0.0, sched_samp_epoch=0.0):
     '''Constructor.
 
     :param src_embedder: A word embedder for the input language
@@ -70,6 +71,9 @@ class DefaultTranslator(Translator, Serializable, Reportable):
     self.attender = attender
     self.trg_embedder = trg_embedder
     self.decoder = decoder
+    self.sched_samp_max = sched_samp_max
+    self.sched_samp_epoch = sched_samp_epoch
+    self.cur_epoch = 0
 
   def shared_params(self):
     return [set(["src_embedder.emb_dim", "encoder.input_dim"]),
@@ -110,7 +114,7 @@ class DefaultTranslator(Translator, Serializable, Reportable):
     # Initialize the hidden state from the encoder
     ss = mark_as_batch([Vocab.SS] * len(src)) if is_batched(src) else Vocab.SS
     dec_state = self.decoder.initial_state(self.encoder.get_final_states(), self.trg_embedder.embed(ss))
-    return self.loss_calculator(self, dec_state, src, trg)
+    return self.loss_calculator(self, dec_state, src, trg, trg_sampling_prob=min(self.sched_samp_max, self.sched_samp_max * (float(self.cur_epoch/self.sched_samp_epoch))))
 
   def generate(self, src, idx, src_mask=None, forced_trg_ids=None):
     if not xnmt.batcher.is_batched(src):
@@ -146,6 +150,10 @@ class DefaultTranslator(Translator, Serializable, Reportable):
     Sets source vocab for reporting purposes.
     """
     self.reporting_src_vocab = src_vocab
+
+  @handle_xnmt_event
+  def on_new_epoch(self):
+    self.cur_epoch += 1
 
   @register_xnmt_event_assign
   def html_report(self, context=None):

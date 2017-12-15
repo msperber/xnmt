@@ -249,7 +249,7 @@ class TrainingRegimen(Serializable):
       if self.logger.should_report_dev():
         self.dev_evaluation()
 
-      self.model.new_epoch()
+    self.model.new_epoch()
 
   def dev_evaluation(self, out_ext=".dev_hyp", ref_ext=".dev_ref", encoding='utf-8'):
     self.model.set_train(False)
