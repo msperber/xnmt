@@ -114,7 +114,10 @@ class DefaultTranslator(Translator, Serializable, Reportable):
     # Initialize the hidden state from the encoder
     ss = mark_as_batch([Vocab.SS] * len(src)) if is_batched(src) else Vocab.SS
     dec_state = self.decoder.initial_state(self.encoder.get_final_states(), self.trg_embedder.embed(ss))
-    return self.loss_calculator(self, dec_state, src, trg, trg_sampling_prob=min(self.sched_samp_max, self.sched_samp_max * (float(self.cur_epoch/self.sched_samp_epoch))))
+    trg_sampling = 0.0
+    if self.sched_samp_max > 0.0 and self.sched_samp_epoch > 0.0:
+      trg_sampling = min(self.sched_samp_max, self.sched_samp_max * (float(self.cur_epoch/self.sched_samp_epoch)))
+    return self.loss_calculator(self, dec_state, src, trg, trg_sampling_prob=trg_sampling)
 
   def generate(self, src, idx, src_mask=None, forced_trg_ids=None):
     if not xnmt.batcher.is_batched(src):
