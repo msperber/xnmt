@@ -105,7 +105,8 @@ class MultiHeadedAttention(object):
         assert self.downsampling_method == "reshape"
         if sent_len % self.downsample_factor != 0:
           raise ValueError("For 'reshape' downsampling, sequence lengths must be multiples of the downsampling factor. Configure batcher accordingly.")
-        sent_len_out = sent_len / self.downsample_factor
+        if batch_mask is not None: batch_mask = batch_mask[:,::self.downsample_factor]
+        sent_len_out = sent_len // self.downsample_factor
         sent_len = sent_len_out
         out_mask = key.mask
         if self.downsample_factor > 1 and out_mask is not None:
@@ -157,9 +158,9 @@ class MultiHeadedAttention(object):
       if batch_mask is not None:
         # reshape (batch, time) -> (time, head_count*batch), then *-100
         inp = np.resize(np.broadcast_to(batch_mask.T[:,np.newaxis,:],
-                                                           (sent_len, self.head_count, batch_size)), 
-                                           (1, sent_len, self.head_count*batch_size)) \
-                                           * -100
+                                        (sent_len, self.head_count, batch_size)), 
+                        (1, sent_len, self.head_count*batch_size)) \
+              * -100
         if self.broadcast_masks:
           inp = np.asarray(np.broadcast_to(inp, (sent_len, sent_len, self.head_count*batch_size)))
         mask_expr = dy.inputTensor(inp, batched=True)
