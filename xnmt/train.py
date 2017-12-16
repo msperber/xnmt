@@ -37,6 +37,7 @@ from xnmt.training_strategy import TrainingStrategy, TrainingMLELoss
 from xnmt.serializer import YamlSerializer, Serializable, DependentInitParam
 import xnmt.xnmt_decode
 import xnmt.xnmt_evaluate
+import xnmt.lattice
 from xnmt.evaluator import LossScore
 import xnmt.optimizer
 
