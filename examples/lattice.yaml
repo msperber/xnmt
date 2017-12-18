@@ -19,7 +19,8 @@ lattice:
     lr_decay: 0.5
     dev_metrics: bleu
     corpus_parser: !BilingualCorpusParser
-      src_reader: !LatticeTextReader {}
+      src_reader: !LatticeTextReader
+        char_path: True
       trg_reader: !PlainTextReader {}
       training_corpus: !BilingualTrainingCorpus
         train_src: examples/data/train.en

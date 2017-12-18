@@ -7,6 +7,7 @@ from xnmt.vocab import Vocab
 from xnmt.embedder import SimpleWordEmbedder
 from xnmt.events import register_handler, handle_xnmt_event
 from xnmt.batcher import is_batched
+
 class LatticeNode(object):
   def __init__(self, nodes_prev, nodes_next, value):
     """
@@ -21,16 +22,18 @@ class LatticeNode(object):
     return LatticeNode(self.nodes_prev, self.nodes_next, value)
 
 class Lattice(Input):
-  def __init__(self, nodes):
+  def __init__(self, nodes, add_bwd_connections=False):
     """
     :param nodes: list of LatticeNode objects
     """
+    self.nodes = nodes
+    if add_bwd_connections:
+      self._add_bwd_connections()
     assert len(nodes[0].nodes_prev) == 0
     assert len(nodes[-1].nodes_next) == 0
     for t in range(1,len(nodes)-1):
       assert len(nodes[t].nodes_prev) > 0
       assert len(nodes[t].nodes_next) > 0
-    self.nodes = nodes
     self.mask = None
     self.expr_tensor = None
   def __len__(self):
@@ -46,6 +49,10 @@ class Lattice(Input):
     if self.expr_tensor is None:
       self.expr_tensor = dy.concatenate_cols(self.as_list())
     return self.expr_tensor
+  def _add_bwd_connections(self):
+    for pos in range(len(self.nodes)):
+      for pred_i in self.nodes[pos].nodes_prev:
+        self.nodes[pred_i].nodes_next.append(pos)
 
   def reversed(self):
     rev_nodes = []
@@ -59,8 +66,9 @@ class Lattice(Input):
   
 class LatticeTextReader(BaseTextReader, Serializable):
   yaml_tag = u'!LatticeTextReader'
-  def __init__(self, vocab=None):
+  def __init__(self, vocab=None, char_path=False):
     self.vocab = vocab
+    self.char_path = char_path
     if vocab is not None:
       self.vocab.freeze()
       self.vocab.set_unk(Vocab.UNK_STR)
@@ -73,8 +81,23 @@ class LatticeTextReader(BaseTextReader, Serializable):
       words = l.strip().split()
       if words[0] != Vocab.SS_STR: words.insert(0, Vocab.SS_STR)
       if words[-1] != Vocab.ES_STR: words.append(Vocab.ES_STR)
-      mapped_words = [LatticeNode([i-1] if i>0 else [], [i+1] if i < len(words)-1 else [], self.vocab.convert(word)) for i, word in enumerate(words)]
-      sents.append(Lattice(mapped_words))
+      mapped_words = [LatticeNode([], [1], self.vocab.convert(words[0]))]
+      prev_indices = [0]
+      for word in words[1:-1]:
+        representations = self.get_representations(word)
+        new_prev_indices = []
+        for rep in representations:
+          for rep_pos in range(len(rep)):
+            if rep_pos==0:
+              preds = prev_indices
+            else:
+              preds = [len(mapped_words)-1]
+            mapped_words.append(LatticeNode(preds, [], self.vocab.convert(rep[rep_pos])))
+          new_prev_indices.append(len(mapped_words)-1)
+        prev_indices = new_prev_indices
+      mapped_words.append(LatticeNode(prev_indices, [], self.vocab.convert(words[-1])))
+      lattice = Lattice(mapped_words, add_bwd_connections=True)
+      sents.append(lattice)
     return sents
 
   def freeze(self):
@@ -84,6 +107,12 @@ class LatticeTextReader(BaseTextReader, Serializable):
 
   def vocab_size(self):
     return len(self.vocab)
+  
+  def get_representations(self, word):
+    reps = [[word]]
+    if self.char_path:
+      reps.append(["c_"+char for char in word] + ["c_"])
+    return reps
 
 class LatticeEmbedder(SimpleWordEmbedder, Serializable):
   """
