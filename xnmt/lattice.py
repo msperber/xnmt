@@ -170,7 +170,7 @@ class LatticeEmbedder(SimpleWordEmbedder, Serializable):
 class LatticeLSTMTransducer(Transducer):
   def __init__(self, yaml_context, input_dim, hidden_dim, dropout = 0.0):
     register_handler(self)
-    if dropout and dropout > 0.0: raise NotImplementedError()
+    self.dropout_rate = dropout or yaml_context.dropout
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
     model = yaml_context.dynet_param_collection.param_col
@@ -183,12 +183,28 @@ class LatticeLSTMTransducer(Transducer):
     self.p_Wh_f = model.add_parameters(dim=(hidden_dim, hidden_dim))
     self.p_b_f  = model.add_parameters(dim=(hidden_dim,), init=dy.ConstInitializer(1.0))
 
+    self.dropout_mask_x = None
+    self.dropout_mask_h = None
+
+  @handle_xnmt_event
+  def on_set_train(self, val):
+    self.train = val
+
   @handle_xnmt_event
   def on_start_sent(self, src):
     self._final_states = None
+    self.dropout_mask_x = None
+    self.dropout_mask_h = None    
 
   def get_final_states(self):
     return self._final_states
+
+  def set_dropout_masks(self, batch_size=1):
+    if self.dropout_rate > 0.0 and self.train:
+      retention_rate = 1.0 - self.dropout_rate
+      scale = 1.0 / retention_rate
+      self.dropout_mask_x = dy.random_bernoulli((self.input_dim,), retention_rate, scale, batch_size=batch_size)
+      self.dropout_mask_h = dy.random_bernoulli((self.hidden_dim,), retention_rate, scale, batch_size=batch_size)
 
   def __call__(self, lattice):
     Wx_iog = dy.parameter(self.p_Wx_iog)
@@ -199,15 +215,23 @@ class LatticeLSTMTransducer(Transducer):
     b_f = dy.parameter(self.p_b_f)
     h = []
     c = []
+
+    batch_size = lattice[0].value.dim()[1]
+    if self.dropout_rate > 0.0 and self.train:
+      self.set_dropout_masks(batch_size=batch_size)
+
     for x_t in lattice:
+      val = x_t.value
+      if self.dropout_rate > 0.0 and self.train:
+        val = dy.cmult(val, self.dropout_mask_x)
       i_ft_list = []
       if len(x_t.nodes_prev)==0:
-        tmp_iog = dy.affine_transform([b_iog, Wx_iog, x_t.value])
+        tmp_iog = dy.affine_transform([b_iog, Wx_iog, val])
       else:
         h_tilde = sum(h[pred] for pred in x_t.nodes_prev)
-        tmp_iog = dy.affine_transform([b_iog, Wx_iog, x_t.value, Wh_iog, h_tilde])
+        tmp_iog = dy.affine_transform([b_iog, Wx_iog, val, Wh_iog, h_tilde])
         for pred in x_t.nodes_prev:
-          i_ft_list.append(dy.logistic(dy.affine_transform([b_f, Wx_f, x_t.value, Wh_f, h[pred]])))
+          i_ft_list.append(dy.logistic(dy.affine_transform([b_f, Wx_f, val, Wh_f, h[pred]])))
       i_ait = dy.pick_range(tmp_iog, 0, self.hidden_dim)
 #       i_aft = dy.pick_range(tmp, self.hidden_dim, self.hidden_dim*2)
       i_aot = dy.pick_range(tmp_iog, self.hidden_dim, self.hidden_dim*2)
@@ -223,7 +247,10 @@ class LatticeLSTMTransducer(Transducer):
         for i in range(1,len(x_t.nodes_prev)):
           fc += dy.cmult(i_ft_list[i], c[x_t.nodes_prev[i]])
         c.append(fc + dy.cmult(i_it, i_gt))
-      h.append(dy.cmult(i_ot, dy.tanh(c[-1])))
+      h_t = dy.cmult(i_ot, dy.tanh(c[-1]))
+      if self.dropout_rate > 0.0 and self.train:
+        h_t = dy.cmult(h_t, self.dropout_mask_h)
+      h.append(h_t)
 #     self._final_states = [FinalTransducerState(dy.reshape(h[-1], (self.hidden_dim,)),\
 #                                                dy.reshape(c[-1], (self.hidden_dim,)))]
     self._final_states = [FinalTransducerState(h[-1], c[-1])]

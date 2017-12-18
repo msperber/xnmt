@@ -11,7 +11,7 @@ lattice:
     batcher: !SrcBatcher
       batch_size: 1
     glob:
-      dropout: 0.1
+      dropout: 0.5
       default_layer_dim: 128
     restart_trainer: True
     trainer: !AdamTrainer
@@ -22,7 +22,7 @@ lattice:
       src_reader: !LatticeTextReader
         use_words: False
         use_chars: True
-        use_pronun_from: examples/mini-dict.en
+        use_pronun_from: ~ #examples/mini-dict.en
       trg_reader: !PlainTextReader {}
       training_corpus: !BilingualTrainingCorpus
         train_src: examples/data/train.en
