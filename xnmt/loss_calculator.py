@@ -72,7 +72,7 @@ class ReinforceLoss(Serializable):
       decoder_hidden_dim = decoder_hidden_dim or yaml_context.default_layer_dim
       self.baseline = linear.Linear(input_dim=decoder_hidden_dim, output_dim=1, model=model)
 
-  def __call__(self, translator, dec_state, src, trg):
+  def __call__(self, translator, dec_state, src, trg, trg_sampling_prob=0.0):
     # TODO: apply trg.mask ?
     samples = []
     logsofts = []

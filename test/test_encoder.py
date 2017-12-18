@@ -17,6 +17,7 @@ from xnmt.input import BilingualCorpusParser, PlainTextReader
 from xnmt.model_context import ModelContext, PersistentParamCollection
 import xnmt.batcher
 import xnmt.events
+from xnmt.vocab import Vocab
 
 class TestEncoder(unittest.TestCase):
 
@@ -89,7 +90,7 @@ class TestEncoder(unittest.TestCase):
     self.set_train(True)
     for sent_i in range(10):
       dy.renew_cg()
-      src = self.training_corpus.train_src_data[sent_i]
+      src = self.training_corpus.train_src_data[sent_i].get_padded_sent(Vocab.ES, 4 - (len(self.training_corpus.train_src_data[sent_i]) % 4))
       self.start_sent(src)
       embeddings = model.src_embedder.embed_sent(src)
       encodings = model.encoder(embeddings)

@@ -43,7 +43,7 @@ class TestTruncatedBatchTraining(unittest.TestCase):
     Tests whether single loss equals batch loss.
     Truncating src / trg sents to same length so no masking is necessary
     """
-    batch_size = batch_size
+    batch_size = 5
     src_sents = self.training_corpus.train_src_data[:batch_size]
     src_min = min([len(x) for x in src_sents])
     src_sents_trunc = [s[:src_min] for s in src_sents]

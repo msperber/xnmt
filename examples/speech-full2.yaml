@@ -6,7 +6,7 @@ speech-full:
     err_file: examples/output/<EXP>.err
     run_for_epochs: 20
     eval_metrics: cer,wer
-  train: !TrainingRegimen
+  train: !SimpleTrainingRegimen
     src_format: contvec
     corpus_parser: !BilingualCorpusParser
       src_reader: !ContVecReader

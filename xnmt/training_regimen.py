@@ -12,7 +12,7 @@ import dynet as dy
 
 # all Serializable objects must be imported here, otherwise we get in trouble with the
 # YAML parser
-import xnmt.batcher
+from xnmt.batcher import SrcBatcher
 from xnmt.embedder import *
 from xnmt.attender import *
 from xnmt.input import *

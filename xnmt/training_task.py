@@ -124,6 +124,12 @@ class MultiTaskTrainingRegimen(TrainingRegimen, TrainingTask):
     Allow access to model of main task
     """
     return self.tasks[0].model
+  @property
+  def batcher(self):
+    """
+    Allow access to batcher of main task
+    """
+    return self.tasks[0].batcher
 
 class JointMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
   yaml_tag = u"!JointMultiTaskTrainingRegimen"
