@@ -20,7 +20,7 @@ lattice:
     dev_metrics: bleu
     corpus_parser: !BilingualCorpusParser
       src_reader: !LatticeTextReader
-        use_words: False
+        use_words: True
         use_chars: True
         use_pronun_from: ~ #examples/mini-dict.en
       trg_reader: !PlainTextReader {}
@@ -30,7 +30,8 @@ lattice:
         dev_src: examples/data/dev.en
         dev_trg: examples/data/dev.ja
     model: !DefaultTranslator
-      src_embedder: !LatticeEmbedder {}
+      src_embedder: !LatticeEmbedder
+        arc_dropout: 0.5
       encoder: !BiLatticeLSTMTransducer
         layers: 3
       attender: !MlpAttender {}

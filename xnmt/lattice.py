@@ -1,4 +1,5 @@
 import io
+import random
 
 import dynet as dy
 
@@ -24,13 +25,11 @@ class LatticeNode(object):
     return LatticeNode(self.nodes_prev, self.nodes_next, value)
 
 class Lattice(Input):
-  def __init__(self, nodes, add_bwd_connections=False):
+  def __init__(self, nodes):
     """
     :param nodes: list of LatticeNode objects
     """
     self.nodes = nodes
-    if add_bwd_connections:
-      self._add_bwd_connections()
     assert len(nodes[0].nodes_prev) == 0
     assert len(nodes[-1].nodes_next) == 0
     for t in range(1,len(nodes)-1):
@@ -51,11 +50,12 @@ class Lattice(Input):
     if self.expr_tensor is None:
       self.expr_tensor = dy.concatenate_cols(self.as_list())
     return self.expr_tensor
-  def _add_bwd_connections(self):
-    for pos in range(len(self.nodes)):
-      for pred_i in self.nodes[pos].nodes_prev:
-        self.nodes[pred_i].nodes_next.append(pos)
-
+  def _add_bwd_connections(self, nodes):
+    for pos in range(len(nodes)):
+      for pred_i in nodes[pos].nodes_prev:
+        nodes[pred_i].nodes_next.append(pos)
+    return nodes
+ 
   def reversed(self):
     rev_nodes = []
     seq_len = len(self.nodes)
@@ -65,6 +65,46 @@ class Lattice(Input):
                              value = node.value)
       rev_nodes.append(new_node)
     return Lattice(rev_nodes)
+  
+class BinnedLattice(Lattice):
+  def __init__(self, bins):
+    """
+    :param bins: indexes bins[bin_pos][rep_pos][token_pos]
+    """
+    super(BinnedLattice, self).__init__(nodes = self.bins_to_nodes(bins))
+    self.bins = bins
+  
+  def bins_to_nodes(self, bins, drop_arcs=0.0):
+    assert len(bins[0]) == len(bins[-1]) == len(bins[0][0]) == len(bins[-1][0]) == 1
+    nodes = [LatticeNode([], [1], bins[0][0][0])]
+    prev_indices = [0]
+    for cur_bin in bins[1:-1]:
+      new_prev_indices = []
+      if drop_arcs > 0.0:
+        shuffled_bin = list(cur_bin)
+        random.shuffle(shuffled_bin)
+        dropped_bin = [shuffled_bin[0]]
+        for b in shuffled_bin[1:]:
+          if random.random() > drop_arcs:
+            dropped_bin.append(b)
+        cur_bin = dropped_bin
+      for rep in cur_bin:
+        for rep_pos in range(len(rep)):
+          if rep_pos==0:
+            preds = prev_indices
+          else:
+            preds = [len(nodes)-1]
+          #print("node", len(nodes), preds)
+          nodes.append(LatticeNode(preds, [], rep[rep_pos]))
+        new_prev_indices.append(len(nodes)-1)
+      prev_indices = new_prev_indices
+    nodes.append(LatticeNode(prev_indices, [], bins[-1][0][0]))
+    return self._add_bwd_connections(nodes)
+  
+  def drop_arcs(self, dropout):
+    return Lattice(nodes=self.bins_to_nodes(self.bins, drop_arcs=dropout))
+  
+
   
 class LatticeTextReader(BaseTextReader, Serializable):
   yaml_tag = u'!LatticeTextReader'
@@ -93,25 +133,21 @@ class LatticeTextReader(BaseTextReader, Serializable):
       words = l.strip().split()
       if words[0] != Vocab.SS_STR: words.insert(0, Vocab.SS_STR)
       if words[-1] != Vocab.ES_STR: words.append(Vocab.ES_STR)
-      mapped_words = [LatticeNode([], [1], self.vocab.convert(words[0]))]
-      prev_indices = [0]
-      for word in words[1:-1]:
+      bins = []
+      for word in words:
         representations = self.get_representations(word)
-        new_prev_indices = []
+        cur_bin = []
         for rep in representations:
-          for rep_pos in range(len(rep)):
-            if rep_pos==0:
-              preds = prev_indices
-            else:
-              preds = [len(mapped_words)-1]
-#             print("node", len(mapped_words), rep[rep_pos])
-            mapped_words.append(LatticeNode(preds, [], self.vocab.convert(rep[rep_pos])))
-          new_prev_indices.append(len(mapped_words)-1)
-        prev_indices = new_prev_indices
-      mapped_words.append(LatticeNode(prev_indices, [], self.vocab.convert(words[-1])))
-      lattice = Lattice(mapped_words, add_bwd_connections=True)
+          cur_rep_mapped = []
+          for rep_token in rep:
+            cur_rep_mapped.append(self.vocab.convert(rep_token))
+          cur_bin.append(cur_rep_mapped)
+        bins.append(cur_bin)
+      lattice = BinnedLattice(bins=bins)
       sents.append(lattice)
     return sents
+  
+
 
   def freeze(self):
     self.vocab.freeze()
@@ -122,6 +158,8 @@ class LatticeTextReader(BaseTextReader, Serializable):
     return len(self.vocab)
   
   def get_representations(self, word):
+    if word in [Vocab.ES_STR, Vocab.SS_STR, Vocab.UNK_STR]:
+      return [[word]]
     reps = []
     if self.use_words:
       reps.append([word])
@@ -141,7 +179,8 @@ class LatticeEmbedder(SimpleWordEmbedder, Serializable):
 
   yaml_tag = u'!LatticeEmbedder'
 
-  def __init__(self, yaml_context, vocab_size, emb_dim = None, word_dropout = 0.0):
+  def __init__(self, yaml_context, vocab_size, emb_dim = None, word_dropout = 0.0,
+               arc_dropout = 0.0):
     """
     :param vocab_size:
     :param emb_dim:
@@ -156,12 +195,15 @@ class LatticeEmbedder(SimpleWordEmbedder, Serializable):
     self.train = False
     self.weight_noise = 0.0
     self.fix_norm = None
+    self.arc_dropout = arc_dropout
 
   def embed_sent(self, sent):
     if is_batched(sent):
       assert len(sent)==1, "LatticeEmbedder requires batch size of 1"
       assert sent.mask is None
       sent = sent[0]
+    if self.arc_dropout > 0.0:
+      sent = sent.drop_arcs(self.arc_dropout)
     embedded_nodes = [word.new_node_with_val(self.embed(word.value)) for word in sent]
     return Lattice(nodes=embedded_nodes)
 
