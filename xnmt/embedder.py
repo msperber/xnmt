@@ -242,8 +242,7 @@ def read_fasttext_embeddings(emb_dim, vocab, embeddings_file_handle, case_sensit
       key_lc = key.lower()
       if not key_lc in lc_matches:
         lc_matches[key_lc] = []
-      else:
-        lc_matches[key_lc].append(key)
+      lc_matches[key_lc].append(key)
 
   for line in embeddings_file_handle:
     total_embs += 1
