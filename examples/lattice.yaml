@@ -20,7 +20,9 @@ lattice:
     dev_metrics: bleu
     corpus_parser: !BilingualCorpusParser
       src_reader: !LatticeTextReader
-        char_path: True
+        use_words: False
+        use_chars: True
+        use_pronun_from: examples/mini-dict.en
       trg_reader: !PlainTextReader {}
       training_corpus: !BilingualTrainingCorpus
         train_src: examples/data/train.en

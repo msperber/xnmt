@@ -1,3 +1,5 @@
+import io
+
 import dynet as dy
 
 from xnmt.transducer import Transducer, FinalTransducerState
@@ -66,9 +68,19 @@ class Lattice(Input):
   
 class LatticeTextReader(BaseTextReader, Serializable):
   yaml_tag = u'!LatticeTextReader'
-  def __init__(self, vocab=None, char_path=False):
+  def __init__(self, vocab=None, use_words=True, use_chars=False, use_pronun_from=None):
     self.vocab = vocab
-    self.char_path = char_path
+    self.use_chars = use_chars
+    self.use_words = use_words
+    self.use_pronun = False
+    if use_pronun_from:
+      self.use_pronun = {}
+      for l in io.open(use_pronun_from):
+        spl = l.strip().split()
+        word = spl[0]
+        pronun = spl[1:]
+        assert word not in self.use_pronun
+        self.use_pronun[word] = pronun
     if vocab is not None:
       self.vocab.freeze()
       self.vocab.set_unk(Vocab.UNK_STR)
@@ -92,6 +104,7 @@ class LatticeTextReader(BaseTextReader, Serializable):
               preds = prev_indices
             else:
               preds = [len(mapped_words)-1]
+#             print("node", len(mapped_words), rep[rep_pos])
             mapped_words.append(LatticeNode(preds, [], self.vocab.convert(rep[rep_pos])))
           new_prev_indices.append(len(mapped_words)-1)
         prev_indices = new_prev_indices
@@ -109,9 +122,16 @@ class LatticeTextReader(BaseTextReader, Serializable):
     return len(self.vocab)
   
   def get_representations(self, word):
-    reps = [[word]]
-    if self.char_path:
+    reps = []
+    if self.use_words:
+      reps.append([word])
+    if self.use_chars:
       reps.append(["c_"+char for char in word] + ["c_"])
+    if self.use_pronun:
+      if word in self.use_pronun:
+        reps.append(self.use_pronun[word] + ['__'])
+      else:
+        print("WARNING: no pronunciation for", word)
     return reps
 
 class LatticeEmbedder(SimpleWordEmbedder, Serializable):
