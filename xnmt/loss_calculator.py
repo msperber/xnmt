@@ -13,15 +13,15 @@ import xnmt.evaluator
 import xnmt.linear as linear
 import xnmt.batcher
 
-class TrainingStrategy(Serializable):
+class LossCalculator(Serializable):
   '''
   A template class implementing the training strategy and corresponding loss calculation.
   '''
-  yaml_tag = u'!DefaultTrainingStrategy'
+  yaml_tag = u'!LossCalculator'
 
   def __init__(self, loss_calculator = None):
     if loss_calculator is None:
-      self.loss_calculator = TrainingMLELoss()
+      self.loss_calculator = MLELoss()
     else:
       self.loss_calculator = loss_calculator
 
@@ -29,9 +29,9 @@ class TrainingStrategy(Serializable):
     return self.loss_calculator(translator, dec_state, src, trg, trg_sampling_prob=trg_sampling_prob)
 
 
-class TrainingMLELoss(Serializable):
-  yaml_tag = '!TrainingMLELoss'
-  
+class MLELoss(Serializable):
+  yaml_tag = '!MLELoss'
+
   def __call__(self, translator, dec_state, src, trg, trg_sampling_prob=0.0):
     trg_mask = trg.mask if xnmt.batcher.is_batched(trg) else None
     losses = []
@@ -57,8 +57,8 @@ class TrainingMLELoss(Serializable):
 
     return dy.esum(losses)
 
-class TrainingReinforceLoss(Serializable):
-  yaml_tag = '!TrainingReinforceLoss'
+class ReinforceLoss(Serializable):
+  yaml_tag = '!ReinforceLoss'
 
   def __init__(self, yaml_context, evaluation_metric=None, sample_length=50, use_baseline=False, decoder_hidden_dim=None):
     self.sample_length = sample_length
@@ -133,5 +133,5 @@ class TrainingReinforceLoss(Serializable):
     return loss
 
 # To be implemented
-class TrainingMinRiskLoss(Serializable):
-  yaml_tag = 'TrainingMinRiskLoss'
+class MinRiskLoss(Serializable):
+  yaml_tag = 'MinRiskLoss'
