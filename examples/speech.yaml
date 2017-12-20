@@ -17,7 +17,7 @@ speech-2layers:
       pad_to_multiple: 4
       batch_size: 3
     trainer: !AdamTrainer {}
-    dev_metrics: wer
+    dev_metrics: cer,wer
     glob:
       default_layer_dim: 32
       dropout: 0.4
@@ -49,7 +49,10 @@ speech-2layers:
         layers: 1
         mlp_hidden_dim: 64
         bridge: !CopyBridge {}
+    inference: !SimpleInference
+      post_process: join-char
   inference: !SimpleInference
     src_file: examples/data/synth.contvec.npz
+    post_process: join-char
   evaluate:
-    ref_file: examples/data/synth.char
+    ref_file: examples/data/synth.words
