@@ -190,6 +190,7 @@ class AccumulatingTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializa
     for src,trg in self.next_minibatch():
       dy.renew_cg()
       loss = self.training_step(src, trg)
+      loss.backward()
       self.num_steps_without_update += 1
       if update_weights:
         if self.num_steps_without_update % self.accumulate_steps == 0:
