@@ -83,27 +83,6 @@ class SimpleTrainingTask(TrainingTask, Serializable):
                run_for_epochs=None, lr_decay=1.0, lr_decay_times=3, attempts_before_lr_decay=1,
                dev_metrics="", schedule_metric="loss", restart_trainer=False,
                reload_command=None, name=None, inference=None):
-    """
-    :param yaml_context:
-    :param corpus_parser: an input.InputReader object
-    :param model: a generator.GeneratorModel object
-    :param dev_every (int): dev checkpoints every n sentences (0 for only after epoch)
-    :param batcher: Type of batcher. Defaults to SrcBatcher of batch size 32.
-    :param loss_calculator:
-    :param pretrained_model_file: Path of pre-trained model file
-    :param src_format: Format of input data: text/contvec
-    :param lr_decay (float):
-    :param lr_decay_times (int):  Early stopping after decaying learning rate a certain number of times
-    :param attempts_before_lr_decay (int): apply LR decay after dev scores haven't improved over this many checkpoints
-    :param dev_metrics: Comma-separated list of evaluation metrics (bleu/wer/cer)
-    :param schedule_metric: determine learning schedule based on this dev_metric (loss/bleu/wer/cer)
-    :param restart_trainer: Restart trainer (useful for Adam) and revert weights to best dev checkpoint when applying LR decay (https://arxiv.org/pdf/1706.09733.pdf)
-    :param reload_command: Command to change the input data after each epoch.
-                           --epoch EPOCH_NUM will be appended to the command.
-                           To just reload the data after each epoch set the command to 'true'.
-    :param name: will be prepended to log outputs if given
-    :param inference: used for inference during dev checkpoints if dev_metrics are specified
-    """
     assert yaml_context is not None
     self.yaml_context = yaml_context
     self.model_file = self.yaml_context.dynet_param_collection.model_file
