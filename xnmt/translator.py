@@ -97,16 +97,13 @@ class DefaultTranslator(Translator, Serializable, Reportable):
     self.report_path = kwargs.get("report_path", None)
     self.report_type = kwargs.get("report_type", None)
 
-  def initialize_training_strategy(self, training_strategy):
-    self.loss_calculator = training_strategy
-
-  def calc_loss(self, src, trg):
+  def calc_loss(self, src, trg, loss_calculator):
     """
     :param src: source sequence (unbatched, or batched + padded)
     :param trg: target sequence (unbatched, or batched + padded); losses will be accumulated only if trg_mask[batch,pos]==0, or no mask is set
+    :param loss_calculator:
     :returns: (possibly batched) loss expression
     """
-    assert hasattr(self, "loss_calculator")
     self.start_sent(src)
     embeddings = self.src_embedder.embed_sent(src)
     encodings = self.encoder(embeddings)
@@ -117,7 +114,7 @@ class DefaultTranslator(Translator, Serializable, Reportable):
     trg_sampling = 0.0
     if self.sched_samp_max > 0.0 and self.sched_samp_epoch > 0.0:
       trg_sampling = min(self.sched_samp_max, self.sched_samp_max * (float(self.cur_epoch/self.sched_samp_epoch)))
-    return self.loss_calculator(self, dec_state, src, trg, trg_sampling_prob=trg_sampling)
+    return loss_calculator(self, dec_state, src, trg, trg_sampling_prob=trg_sampling)
 
   def generate(self, src, idx, src_mask=None, forced_trg_ids=None):
     if not xnmt.batcher.is_batched(src):
@@ -155,7 +152,7 @@ class DefaultTranslator(Translator, Serializable, Reportable):
     self.reporting_src_vocab = src_vocab
 
   @handle_xnmt_event
-  def on_new_epoch(self):
+  def on_new_epoch(self, training_regimen, num_sents):
     self.cur_epoch += 1
 
   @register_xnmt_event_assign

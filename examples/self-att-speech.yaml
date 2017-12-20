@@ -6,7 +6,7 @@ speech-self-att:
     err_file: examples/output/<EXP>.err
     run_for_epochs: 20
     eval_metrics: cer,wer
-  train: !TrainingRegimen
+  train: !SimpleTrainingRegimen
     src_format: contvec
     batcher: !SrcBatcher
       batch_size: 3
