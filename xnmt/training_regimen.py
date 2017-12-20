@@ -126,6 +126,86 @@ class SimpleTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable):
         if update_weights: self.model.set_train(True)
       if self.should_stop_training(): break
 
+class AccumulatingTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable):
+  yaml_tag = u'!AccumulatingTrainingRegimen'
+  def __init__(self, yaml_context, corpus_parser, model, glob={},
+               dev_every=0, batcher=None, loss_calculator=None, 
+               pretrained_model_file="", src_format="text", trainer=None, 
+               run_for_epochs=None, lr_decay=1.0, lr_decay_times=3, attempts_before_lr_decay=1,
+               dev_metrics="", schedule_metric="loss", restart_trainer=False,
+               reload_command=None, dynet_profiling=0, name=None,
+               inference=None, accumulate_steps=1):
+    """
+    :param yaml_context:
+    :param corpus_parser: an input.InputReader object
+    :param model: a generator.GeneratorModel object
+    :param dev_every (int): dev checkpoints every n sentences (0 for only after epoch)
+    :param batcher: Type of batcher. Defaults to SrcBatcher of batch size 32.
+    :param loss_calculator:
+    :param pretrained_model_file: Path of pre-trained model file
+    :param src_format: Format of input data: text/contvec
+    :param trainer: Trainer object, default is SGD with learning rate 0.1
+    :param lr_decay (float):
+    :param lr_decay_times (int):  Early stopping after decaying learning rate a certain number of times
+    :param attempts_before_lr_decay (int): apply LR decay after dev scores haven't improved over this many checkpoints
+    :param dev_metrics: Comma-separated list of evaluation metrics (bleu/wer/cer)
+    :param schedule_metric: determine learning schedule based on this dev_metric (loss/bleu/wer/cer)
+    :param restart_trainer: Restart trainer (useful for Adam) and revert weights to best dev checkpoint when applying LR decay (https://arxiv.org/pdf/1706.09733.pdf)
+    :param reload_command: Command to change the input data after each epoch.
+                           --epoch EPOCH_NUM will be appended to the command.
+                           To just reload the data after each epoch set the command to 'true'.
+    :param dynet_profiling:
+    :param name: will be prepended to log outputs if given
+    :param inference: used for inference during dev checkpoints if dev_metrics are specified
+    :param accumulate_steps: accumulate gradients and update parameters every n steps
+    """
+    super(AccumulatingTrainingRegimen, self).__init__(yaml_context=yaml_context,
+                                                corpus_parser=corpus_parser,
+                                                model=model,
+                                                glob=glob,
+                                                dev_every=dev_every,
+                                                batcher=batcher,
+                                                loss_calculator=loss_calculator, 
+                                                pretrained_model_file=pretrained_model_file,
+                                                src_format=src_format,
+                                                run_for_epochs=run_for_epochs,
+                                                lr_decay=lr_decay,
+                                                lr_decay_times=lr_decay_times,
+                                                attempts_before_lr_decay=attempts_before_lr_decay,
+                                                dev_metrics=dev_metrics,
+                                                schedule_metric=schedule_metric,
+                                                restart_trainer=restart_trainer,
+                                                reload_command=reload_command,
+                                                name=name,
+                                                inference=inference)
+    self.trainer = trainer or xnmt.optimizer.SimpleSGDTrainer(self.yaml_context, 0.1)
+    self.dynet_profiling = dynet_profiling
+    self.accumulate_steps = accumulate_steps
+    self.num_steps_without_update = 0
+
+  def run_training(self, update_weights=True):
+    """
+    Main training loop (overwrites TrainingRegimen.run_training())
+    """
+    self.model.set_train(update_weights)
+    for src,trg in self.next_minibatch():
+      dy.renew_cg()
+      loss = self.training_step(src, trg)
+      self.num_steps_without_update += 1
+      if update_weights:
+        if self.num_steps_without_update % self.accumulate_steps == 0:
+          self.update_weights(loss, self.trainer, self.dynet_profiling)
+          self.num_steps_without_update = 0
+      if self.checkpoint_needed():
+        if update_weights: self.model.set_train(False)
+        should_save = self.checkpoint()
+        if should_save:
+          self.yaml_serializer.save_to_file(self.model_file, self,
+                                        self.yaml_context.dynet_param_collection)
+        if update_weights: self.model.set_train(True)
+      if self.should_stop_training(): break
+
+
 class MultiTaskTrainingRegimen(TrainingRegimen):
   """
   Base class for multi-task training classes.
