@@ -58,7 +58,10 @@ class MultiHeadedAttention(object):
       self.linear_query = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model)
     
     if self.diag_gauss_mask:
-      self.diag_gauss_mask_sigma = model.add_parameters(dim=(1,1,self.head_count), init=dy.ConstInitializer(self.diag_gauss_mask))
+      if self.diag_gauss_mask=="rand":
+        self.diag_gauss_mask_sigma = model.add_parameters(dim=(1,1,self.head_count), init=dy.NumpyInitializer(np.exp(np.random.randint(1,math.log(9), size=(self.head_count,)))))
+      else:
+        self.diag_gauss_mask_sigma = model.add_parameters(dim=(1,1,self.head_count), init=dy.ConstInitializer(self.diag_gauss_mask))
 
     # Layer Norm Module
     self.layer_norm = LayerNorm(model_dim, model)
@@ -331,6 +334,10 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
   def on_set_train(self, val):
     for module in self.modules:
       module.set_dropout(self.dropout if val else 0.0)
+
+#   @handle_xnmt_event
+#   def on_new_epoch(self):
+#     print("current self-att gauss variances: ")
 
   def initialize_position_encoding(self, length, n_units):
     # Implementation in the Google tensor2tensor repo
