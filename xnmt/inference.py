@@ -57,6 +57,7 @@ class SimpleInference(Serializable):
     """
     :param src_file: path of input src file to be translated
     :param trg_file: path of file where trg translatons will be written
+    :param batcher:
     :param candidate_id_file: if we are doing something like retrieval where we select from fixed candidates, sometimes we want to limit our candidates to a certain subset of the full set. this setting allows us to do this.
     :param model_elements: If None, the model will be loaded from model_file. If set, should equal (corpus_parser, generator).
     """
