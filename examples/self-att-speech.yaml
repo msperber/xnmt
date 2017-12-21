@@ -38,7 +38,7 @@ speech-self-att:
         broadcast_masks: False
         plot_attention: ~ #examples/output/<EXP>.self-att
         positional_encoding: True
-        diag_gauss_mask: 3
+        diag_gauss_mask: 3 #rand
         downsampling_method: reshape
       attender: !MlpAttender
         state_dim: 64
