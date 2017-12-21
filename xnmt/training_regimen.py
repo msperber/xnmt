@@ -358,7 +358,7 @@ class SerialMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
   Useful to realize a pretraining-finetuning strategy.
   """
 
-  yaml_tag = u"!SerialTrainingRegimen"
+  yaml_tag = u"!SerialMultiTaskTrainingRegimen"
   
   def __init__(self, yaml_context, tasks, trainer=None, dynet_profiling=0):
     """
