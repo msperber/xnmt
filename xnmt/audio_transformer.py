@@ -289,17 +289,19 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
                ignore_masks=False, plot_attention=None,
-               nonlinearity=None, positional_encoding=False,
+               nonlinearity=None, positional_encoding=False, positional_encoding_concat=0,
                diag_gauss_mask=False, downsampling_method="skip"):
     register_handler(self)
     param_col = yaml_context.dynet_param_collection.param_col
-    self.input_dim = input_dim
+    self.input_dim = input_dim = input_dim + positional_encoding_concat
     self.hidden_dim = hidden_dim
     self.dropout = dropout or yaml_context.dropout
     nonlinearity = nonlinearity or yaml_context.nonlinearity
     self.layers = layers
     self.modules = []
     self.positional_encoding = positional_encoding
+    self.positional_encoding_concat = positional_encoding_concat
+    assert (not self.positional_encoding) or self.positional_encoding_concat==0
     self.position_encoding_block = None
     for layer_i in range(layers):
       if plot_attention is not None:
@@ -323,6 +325,12 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
       if self.position_encoding_block is None or self.position_encoding_block.shape[2] < len(sent):
         self.initialize_position_encoding(int(len(sent) * 1.2), self.input_dim)
       sent = ExpressionSequence(expr_tensor=sent.as_tensor() + dy.inputTensor(self.position_encoding_block[0, :, :len(sent)]), mask=sent.mask)
+    if self.positional_encoding_concat > 0:
+      if self.position_encoding_block is None or self.position_encoding_block.shape[2] < len(sent):
+        self.initialize_position_encoding(int(len(sent) * 1.2), self.positional_encoding_concat)
+      sent = ExpressionSequence(expr_tensor=dy.concatenate([sent.as_tensor(), 
+                                                            dy.inputTensor(self.position_encoding_block[0, :, :len(sent)])]),
+                                mask=sent.mask)
     for module in self.modules:
       enc_sent = module.transduce(sent)
       sent = enc_sent

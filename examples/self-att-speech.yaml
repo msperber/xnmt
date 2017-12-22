@@ -36,7 +36,7 @@ speech-self-att:
         mask_self: True
         ignore_masks: False
         plot_attention: ~ #examples/output/<EXP>.self-att
-        positional_encoding: True
+        positional_encoding_concat: 10
         diag_gauss_mask: rand
         downsampling_method: reshape
       attender: !MlpAttender
