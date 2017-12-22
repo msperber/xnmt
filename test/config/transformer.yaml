@@ -7,16 +7,14 @@ standard:
     cfg_file: examples/output/<EXP>.yaml
     eval_metrics: bleu
   train: !SimpleTrainingRegimen
-    run_for_epochs: 30
-    batcher: !SentShuffleBatcher
-      batch_size: 100
+    run_for_epochs: 2
     glob:
       dropout: 0.2
-      default_layer_dim: 512
+      default_layer_dim: 64
     restart_trainer: False
     trainer: !TransformerAdamTrainer
       alpha: 1.0
-      warmup_steps: 4000
+      warmup_steps: 20
     lr_decay: 1.0
     dev_metrics: bleu
     schedule_metric: bleu
@@ -24,22 +22,27 @@ standard:
       src_reader: !PlainTextReader {}
       trg_reader: !PlainTextReader {}
       training_corpus: !BilingualTrainingCorpus
-        train_src: examples/data/train-big.ja
-        train_trg: examples/data/train-big.en
-        dev_src: examples/data/dev.ja
-        dev_trg: examples/data/dev.en
+        train_src: examples/data/head.ja
+        train_trg: examples/data/head.en
+        dev_src: examples/data/head.ja
+        dev_trg: examples/data/head.en
     model: !TransformerTranslator
       src_embedder: !SimpleWordEmbedder
+        emb_dim: 64
         init: LeCunUniform
       encoder: !TransformerEncoder
         layers: 1
+        input_dim: 64
       trg_embedder: !SimpleWordEmbedder
+        emb_dim: 64
         init: LeCunUniform
       decoder: !TransformerDecoder
         layers: 1
+        input_dim: 64
         label_smoothing: 0.0
+      input_dim: 64
   inference: !SimpleInference
     beam: 1
-    src_file: examples/data/test.ja
+    src_file: examples/data/head.ja
   evaluate:
-    ref_file: examples/data/test.en
+    ref_file: examples/data/head.en

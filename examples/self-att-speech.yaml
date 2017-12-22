@@ -4,13 +4,13 @@ speech-self-att:
     hyp_file: examples/output/<EXP>.hyp
     out_file: examples/output/<EXP>.out
     err_file: examples/output/<EXP>.err
-    run_for_epochs: 20
     eval_metrics: cer,wer
   train: !SimpleTrainingRegimen
+    run_for_epochs: 20
     src_format: contvec
     batcher: !SrcBatcher
       batch_size: 3
-      pad_to_multiple: 4
+      pad_src_to_multiple: 4
     corpus_parser: !BilingualCorpusParser
       src_reader: !ContVecReader
         transpose: True
@@ -51,7 +51,7 @@ speech-self-att:
         input_dim: 512
         mlp_hidden_dim: 64
         bridge: !NoBridge {}
-  decode: !XnmtDecoder
+  inference: !SimpleInference
     src_file: examples/data/synth.contvec.npz
   evaluate:
     ref_file: examples/data/synth.char
