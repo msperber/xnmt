@@ -29,6 +29,8 @@ class MultiHeadedAttention(object):
     :param diag_gauss_mask: False to disable, otherwise a float denoting the std of the mask
     :param downsampling_method: how to perform downsampling (reshape|skip)
     """
+    if diag_gauss_mask:
+      register_handler(self)
     if input_dim is None: input_dim = model_dim
     self.input_dim = input_dim
     assert model_dim % head_count == 0
@@ -57,7 +59,8 @@ class MultiHeadedAttention(object):
     
     if self.diag_gauss_mask:
       if self.diag_gauss_mask=="rand":
-        self.diag_gauss_mask_sigma = model.add_parameters(dim=(1,1,self.head_count), init=dy.NumpyInitializer(np.exp(np.random.randint(1,math.log(9), size=(self.head_count,)))))
+        rand_init = np.exp((np.random.random(size=(self.head_count,)))*math.log(1000))
+        self.diag_gauss_mask_sigma = model.add_parameters(dim=(1,1,self.head_count), init=dy.NumpyInitializer(rand_init))
       else:
         self.diag_gauss_mask_sigma = model.add_parameters(dim=(1,1,self.head_count), init=dy.ConstInitializer(self.diag_gauss_mask))
 
@@ -223,6 +226,9 @@ class MultiHeadedAttention(object):
     ret = self.layer_norm(res)
     return ret
 
+  @handle_xnmt_event
+  def on_new_epoch(self, training_regimen, num_sents):
+    print("current self-att gauss variances: ", self.diag_gauss_mask_sigma.as_array())
 
 class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
@@ -327,10 +333,6 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
   def on_set_train(self, val):
     for module in self.modules:
       module.set_dropout(self.dropout if val else 0.0)
-
-#   @handle_xnmt_event
-#   def on_new_epoch(self):
-#     print("current self-att gauss variances: ")
 
   def initialize_position_encoding(self, length, n_units):
     # Implementation in the Google tensor2tensor repo
