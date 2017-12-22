@@ -151,6 +151,8 @@ class MultiHeadedAttention(object):
     if not self.ignore_masks:
       if att_mask is not None:
         att_mask_inp = att_mask * -100.0
+        if self.downsampling_method=="reshape" and self.downsample_factor>1:
+          att_mask_inp = att_mask_inp[::self.downsample_factor,::self.downsample_factor]
         scaled += dy.inputTensor(att_mask_inp)
       if batch_mask is not None:
         # reshape (batch, time) -> (time, head_count*batch), then *-100
