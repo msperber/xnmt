@@ -35,7 +35,6 @@ speech-self-att:
         diagonal_mask_width: ~
         mask_self: True
         ignore_masks: False
-        broadcast_masks: False
         plot_attention: ~ #examples/output/<EXP>.self-att
         positional_encoding: True
         diag_gauss_mask: 3 #rand

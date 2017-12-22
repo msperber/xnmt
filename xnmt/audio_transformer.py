@@ -15,7 +15,7 @@ MIN_VAL = -10000   # This value is close to NEG INFINITY
 
 class MultiHeadedAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
-               is_self_att=False, ignore_masks=False, broadcast_masks=False, plot_attention=None,
+               is_self_att=False, ignore_masks=False, plot_attention=None,
                diag_gauss_mask=False, downsampling_method="skip"):
     """
     :param head_count: number of self-att heads
@@ -25,7 +25,6 @@ class MultiHeadedAttention(object):
     :param input_dim:
     :param is_self_att: if True, expect key=query=value
     :param ignore_masks: don't apply any masking
-    :param broadcast_masks: if True, broadcast numpy arrays containing masks before calling inputTensor()
     :param plot_attention: None or path to directory to write plots to
     :param diag_gauss_mask: False to disable, otherwise a float denoting the std of the mask
     :param downsampling_method: how to perform downsampling (reshape|skip)
@@ -43,7 +42,6 @@ class MultiHeadedAttention(object):
     self.plot_attention_counter = 0
     
     self.ignore_masks = ignore_masks
-    self.broadcast_masks = broadcast_masks
     self.diag_gauss_mask = diag_gauss_mask
     
     self.is_self_att = is_self_att
@@ -153,19 +151,13 @@ class MultiHeadedAttention(object):
     if not self.ignore_masks:
       if att_mask is not None:
         att_mask_inp = att_mask * -100.0
-        if self.broadcast_masks:
-          att_mask_inp = np.asarray(np.broadcast_to(att_mask_inp[:,:,np.newaxis], (sent_len, sent_len, self.head_count*batch_size)))
-          scaled += dy.inputTensor(att_mask_inp, batched=True)
-        else:    
-          scaled += dy.inputTensor(att_mask_inp)
+        scaled += dy.inputTensor(att_mask_inp)
       if batch_mask is not None:
         # reshape (batch, time) -> (time, head_count*batch), then *-100
         inp = np.resize(np.broadcast_to(batch_mask.T[:,np.newaxis,:],
                                         (sent_len, self.head_count, batch_size)), 
                         (1, sent_len, self.head_count*batch_size)) \
               * -100
-        if self.broadcast_masks:
-          inp = np.asarray(np.broadcast_to(inp, (sent_len, sent_len, self.head_count*batch_size)))
         mask_expr = dy.inputTensor(inp, batched=True)
         scaled += mask_expr
       if self.diag_gauss_mask:
@@ -232,12 +224,12 @@ class MultiHeadedAttention(object):
 
 class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
-               input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False, broadcast_masks=False,
+               input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
                downsampling_method="skip"):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
                                           input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
-                                          broadcast_masks=broadcast_masks, plot_attention=plot_attention,
+                                          plot_attention=plot_attention,
                                           diag_gauss_mask=diag_gauss_mask, downsampling_method=downsampling_method)
     self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity)
     self.head_count = head_count
@@ -288,7 +280,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
   def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=512, 
                head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
-               ignore_masks=False, broadcast_masks=False, plot_attention=None,
+               ignore_masks=False, plot_attention=None,
                nonlinearity=None, positional_encoding=False,
                diag_gauss_mask=False, downsampling_method="skip"):
     register_handler(self)
@@ -313,7 +305,6 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   diagonal_mask_width=diagonal_mask_width,
                                                   mask_self=mask_self,
                                                   ignore_masks=ignore_masks,
-                                                  broadcast_masks=broadcast_masks,
                                                   plot_attention=plot_attention_layer,
                                                   nonlinearity=nonlinearity,
                                                   diag_gauss_mask=diag_gauss_mask,
