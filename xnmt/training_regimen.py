@@ -28,7 +28,7 @@ from xnmt.translator import *
 from xnmt.retriever import *
 from xnmt.corpus import *
 from xnmt.segmenting_encoder import *
-import xnmt.transformer
+import xnmt.audio_transformer
 import xnmt.conv_encoder
 import xnmt.nn
 from xnmt.loss import LossBuilder
