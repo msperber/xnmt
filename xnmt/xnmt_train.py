@@ -23,7 +23,6 @@ import xnmt.residual
 from xnmt.specialized_encoders import *
 from xnmt.decoder import *
 from xnmt.translator import *
-from xnmt.transformer import *
 from xnmt.retriever import *
 from xnmt.serialize_container import *
 from xnmt.training_corpus import *

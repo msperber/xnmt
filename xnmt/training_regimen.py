@@ -23,24 +23,23 @@ import xnmt.segment_transducer
 import xnmt.residual
 import xnmt.training_task
 from xnmt.specialized_encoders import *
+# from xnmt.transformer import TransformerEncoder, TransformerDecoder
 from xnmt.decoder import *
 from xnmt.translator import *
 from xnmt.retriever import *
 from xnmt.corpus import *
 from xnmt.segmenting_encoder import *
-import xnmt.transformer
+import xnmt.audio_transformer
 import xnmt.conv_encoder
 import xnmt.nn
 import xnmt.lattice
 from xnmt.loss import LossBuilder
 from xnmt.optimizer import SimpleSGDTrainer
-from xnmt.loss_calculator import LossCalculator, MLELoss
-from xnmt.serializer import YamlSerializer, DependentInitParam
+from xnmt.serializer import YamlSerializer, Serializable
+from xnmt.optimizer import SimpleSGDTrainer
 from xnmt.inference import SimpleInference
-import xnmt.xnmt_evaluate
 import xnmt.optimizer
 from xnmt.training_task import SimpleTrainingTask
-
 
 class TrainingRegimen(object):
   """
@@ -53,16 +52,28 @@ class TrainingRegimen(object):
     :param update_weights: Whether parameters should be updated
     """
     raise NotImplementedError("")
+  def update_weights(self, loss, trainer, dynet_profiling):
+    """
+    Standardized way to perform backward pass and parameter updates.
+    
+    :param loss: Result of self.training_step(...)
+    :param trainer: DyNet trainer / xnmt.optimizer object
+    :param dynet_profiling: if > 0, print the computation graph 
+    """
+    if dynet_profiling and dynet_profiling > 0:
+      dy.print_text_graphviz()
+    loss.backward()
+    trainer.update()
 
 class SimpleTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable):
   yaml_tag = u'!SimpleTrainingRegimen'
   def __init__(self, yaml_context, corpus_parser, model, glob={},
                dev_every=0, batcher=None, loss_calculator=None, 
                pretrained_model_file="", src_format="text", trainer=None, 
-               run_for_epochs=None, lr_decay=1.0, lr_decay_times=3, attempts_before_lr_decay=1,
-               dev_metrics="", schedule_metric="loss", restart_trainer=False,
-               reload_command=None, dynet_profiling=0, name=None,
-               inference=None):
+               run_for_epochs=None, lr_decay=1.0, lr_decay_times=3, patience=1,
+               initial_patience=None, dev_metrics="", schedule_metric="loss",
+               restart_trainer=False, reload_command=None, dynet_profiling=0,
+               name=None, inference=None):
     """
     :param yaml_context:
     :param corpus_parser: an input.InputReader object
@@ -75,7 +86,8 @@ class SimpleTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable):
     :param trainer: Trainer object, default is SGD with learning rate 0.1
     :param lr_decay (float):
     :param lr_decay_times (int):  Early stopping after decaying learning rate a certain number of times
-    :param attempts_before_lr_decay (int): apply LR decay after dev scores haven't improved over this many checkpoints
+    :param patience (int): apply LR decay after dev scores haven't improved over this many checkpoints
+    :param initial_patience (int): if given, allows adjusting patience for the first LR decay
     :param dev_metrics: Comma-separated list of evaluation metrics (bleu/wer/cer)
     :param schedule_metric: determine learning schedule based on this dev_metric (loss/bleu/wer/cer)
     :param restart_trainer: Restart trainer (useful for Adam) and revert weights to best dev checkpoint when applying LR decay (https://arxiv.org/pdf/1706.09733.pdf)
@@ -98,7 +110,8 @@ class SimpleTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable):
                                                 run_for_epochs=run_for_epochs,
                                                 lr_decay=lr_decay,
                                                 lr_decay_times=lr_decay_times,
-                                                attempts_before_lr_decay=attempts_before_lr_decay,
+                                                patience=patience,
+                                                initial_patience=initial_patience,
                                                 dev_metrics=dev_metrics,
                                                 schedule_metric=schedule_metric,
                                                 restart_trainer=restart_trainer,
@@ -131,7 +144,8 @@ class AccumulatingTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializa
   def __init__(self, yaml_context, corpus_parser, model, glob={},
                dev_every=0, batcher=None, loss_calculator=None, 
                pretrained_model_file="", src_format="text", trainer=None, 
-               run_for_epochs=None, lr_decay=1.0, lr_decay_times=3, attempts_before_lr_decay=1,
+               run_for_epochs=None, lr_decay=1.0, lr_decay_times=3, patience=1,
+               initial_patience=None,
                dev_metrics="", schedule_metric="loss", restart_trainer=False,
                reload_command=None, dynet_profiling=0, name=None,
                inference=None, accumulate_steps=1):
@@ -147,7 +161,8 @@ class AccumulatingTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializa
     :param trainer: Trainer object, default is SGD with learning rate 0.1
     :param lr_decay (float):
     :param lr_decay_times (int):  Early stopping after decaying learning rate a certain number of times
-    :param attempts_before_lr_decay (int): apply LR decay after dev scores haven't improved over this many checkpoints
+    :param patience (int): apply LR decay after dev scores haven't improved over this many checkpoints
+    :param initial_patience (int): if given, allows adjusting patience for the first LR decay
     :param dev_metrics: Comma-separated list of evaluation metrics (bleu/wer/cer)
     :param schedule_metric: determine learning schedule based on this dev_metric (loss/bleu/wer/cer)
     :param restart_trainer: Restart trainer (useful for Adam) and revert weights to best dev checkpoint when applying LR decay (https://arxiv.org/pdf/1706.09733.pdf)
@@ -171,7 +186,8 @@ class AccumulatingTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializa
                                                 run_for_epochs=run_for_epochs,
                                                 lr_decay=lr_decay,
                                                 lr_decay_times=lr_decay_times,
-                                                attempts_before_lr_decay=attempts_before_lr_decay,
+                                                patience=patience,
+                                                initial_patience=initial_patience,
                                                 dev_metrics=dev_metrics,
                                                 schedule_metric=schedule_metric,
                                                 restart_trainer=restart_trainer,
@@ -231,6 +247,8 @@ class MultiTaskTrainingRegimen(TrainingRegimen):
     self.train = None
     self.yaml_serializer = YamlSerializer()
     self.model_file = yaml_context.dynet_param_collection.model_file
+    self.main_task = 0
+    for task in tasks: task.trainer = trainer
   def trigger_train_event(self, value):
     """
     Trigger set_train event, but only if that would lead to a change of the value
@@ -239,7 +257,7 @@ class MultiTaskTrainingRegimen(TrainingRegimen):
     """
     if self.train is None:
       self.train = value
-      self.tasks[0].model.set_train(value)
+      self.tasks[0].model.set_train(value) # tasks[0] is arbitrary; will invoke on_set_train() for all models
     else:
       if value!=self.train:
         self.train = value
@@ -249,23 +267,29 @@ class MultiTaskTrainingRegimen(TrainingRegimen):
     """
     Allow access to corpus_parser of main task
     """
-    return self.tasks[0].corpus_parser
+    return self.tasks[self.main_task].corpus_parser
   @property
   def model(self):
     """
     Allow access to model of main task
     """
-    return self.tasks[0].model
+    return self.tasks[self.main_task].model
+  @property
+  def batcher(self):
+    """
+    Allow access to batcher of main task
+    """
+    return self.tasks[self.main_task].batcher
 
-class JointMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
-  yaml_tag = u"!JointMultiTaskTrainingRegimen"
+class SameBatchMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
+  yaml_tag = u"!SameBatchMultiTaskTrainingRegimen"
   """
   Multi-task training where gradients are accumulated and weight updates
   are thus performed jointly for each task. The relative weight between
   tasks can be configured by setting each tasks batch size accordingly.
   """
   def __init__(self, yaml_context, tasks, trainer=None, dynet_profiling=0):
-    super(JointMultiTaskTrainingRegimen, self).__init__(yaml_context,
+    super(SameBatchMultiTaskTrainingRegimen, self).__init__(yaml_context,
                                                  tasks=tasks, trainer=trainer,
                                                  dynet_profiling=dynet_profiling)
     self.yaml_context = yaml_context
@@ -275,6 +299,7 @@ class JointMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
       task_generators[task] = task.next_minibatch()
     self.trigger_train_event(update_weights)
     while True:
+      dy.renew_cg()
       task_losses = []
       for task, task_gen in task_generators.items():
         src, trg = next(task_gen)
@@ -293,8 +318,8 @@ class JointMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
       if self.tasks[0].should_stop_training(): break
   
 
-class SerialMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
-  yaml_tag = u"!SerialMultiTaskTrainingRegimen"
+class AlternatingBatchMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
+  yaml_tag = u"!AlternatingBatchMultiTaskTrainingRegimen"
   """
   Multi-task training where training steps are performed one after another.
   The relative weight between tasks are explicitly specified explicitly, and for
@@ -304,7 +329,7 @@ class SerialMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
   tasks by setting the task weight to 0.
   """
   def __init__(self, yaml_context, tasks, task_weights=None, trainer=None, dynet_profiling=0):
-    super(SerialMultiTaskTrainingRegimen, self).__init__(yaml_context,
+    super(AlternatingBatchMultiTaskTrainingRegimen, self).__init__(yaml_context,
                                                   tasks=tasks, trainer=trainer,
                                                   dynet_profiling=dynet_profiling)
     self.task_weights = task_weights or [1./len(tasks)] * len(tasks) 
@@ -315,6 +340,7 @@ class SerialMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
       task_generators[task] = task.next_minibatch()
     self.trigger_train_event(update_weights)
     while True:
+      dy.renew_cg()
       cur_task_i = np.random.choice(range(len(self.tasks)), p=self.task_weights)
       cur_task = self.tasks[cur_task_i]
       task_gen = task_generators[cur_task]
@@ -332,3 +358,44 @@ class SerialMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
       self.trigger_train_event(update_weights)
       if self.tasks[0].should_stop_training(): break
 
+class SerialMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
+  """
+  Trains only first task until stopping criterion met, then the same for the
+  second task, etc.
+  
+  Useful to realize a pretraining-finetuning strategy.
+  """
+
+  yaml_tag = u"!SerialMultiTaskTrainingRegimen"
+  
+  def __init__(self, yaml_context, tasks, trainer=None, dynet_profiling=0):
+    """
+    :param tasks: list of TrainingTask instances. The currently active task is treated as main task.
+    :param trainer: Trainer object, default is SGD with learning rate 0.1
+    :param dynet_profiling: if > 0, print computation graph
+    """
+    super(SerialMultiTaskTrainingRegimen, self).__init__(yaml_context,
+                                                  tasks=tasks, trainer=trainer,
+                                                  dynet_profiling=dynet_profiling)
+    self.yaml_context = yaml_context
+  def run_training(self, update_weights=True):
+    for cur_task_id in range(len(self.tasks)):
+      self.main_task = cur_task_id
+      self.train = None
+      cur_task = self.tasks[cur_task_id]
+      task_gen = cur_task.next_minibatch()
+      self.trigger_train_event(update_weights)
+      while True:
+        dy.renew_cg()
+        src, trg = next(task_gen)
+        task_loss = cur_task.training_step(src, trg)
+        if update_weights:
+          self.update_weights(task_loss, self.trainer, self.dynet_profiling)
+        if cur_task.checkpoint_needed():
+          self.trigger_train_event(False)
+          should_save = cur_task.checkpoint(control_learning_schedule = True)
+          if should_save:
+            self.yaml_serializer.save_to_file(self.model_file, self,
+                                              self.yaml_context.dynet_param_collection)
+        self.trigger_train_event(update_weights)
+        if cur_task.should_stop_training(): break

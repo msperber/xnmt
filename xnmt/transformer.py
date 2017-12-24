@@ -1,346 +1,319 @@
-import matplotlib.pyplot as plt
-from sklearn.metrics.pairwise import cosine_similarity
-import dynet as dy
-import math
+# encoding: utf-8
+from __future__ import division, generators
+
 import numpy as np
-from xnmt.expression_sequence import ExpressionSequence
-from xnmt.nn import LayerNorm, Linear, PositionwiseFeedForward, TimeDistributed, PositionwiseLinear
-from xnmt.transducer import SeqTransducer, FinalTransducerState
+import dynet as dy
+from xnmt.linear import Linear
 from xnmt.serializer import Serializable
 from xnmt.events import register_handler, handle_xnmt_event
 
+MIN_VALUE = -10000
 
-MAX_SIZE = 5000
-MIN_VAL = -10000   # This value is close to NEG INFINITY
 
-class MultiHeadedAttention(object):
-  def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
-               is_self_att=False, ignore_masks=False, broadcast_masks=False, plot_attention=None,
-               diag_gauss_mask=False, downsampling_method="skip"):
-    """
-    :param head_count: number of self-att heads
-    :param model_dim: 
-    :param model: dynet param collection
-    :param downsample_factor:
-    :param input_dim:
-    :param is_self_att: if True, expect key=query=value
-    :param ignore_masks: don't apply any masking
-    :param broadcast_masks: if True, broadcast numpy arrays containing masks before calling inputTensor()
-    :param plot_attention: None or path to directory to write plots to
-    :param diag_gauss_mask: False to disable, otherwise a float denoting the std of the mask
-    :param downsampling_method: how to perform downsampling (reshape|skip)
-    """
-    if input_dim is None: input_dim = model_dim
-    self.input_dim = input_dim
-    assert model_dim % head_count == 0
-    self.dim_per_head = model_dim // head_count
-    self.model_dim = model_dim
-    self.head_count = head_count
-    assert downsample_factor >= 1
-    self.downsample_factor = downsample_factor
-    self.downsampling_method = downsampling_method
-    self.plot_attention = plot_attention
-    self.plot_attention_counter = 0
-    
-    self.ignore_masks = ignore_masks
-    self.broadcast_masks = broadcast_masks
-    self.diag_gauss_mask = diag_gauss_mask
-    
-    self.is_self_att = is_self_att
-    
-    if is_self_att:
-      self.linear_kvq = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor,
-                               head_count * self.dim_per_head * 3, model)
-      
+class TimeDistributed(object):
+  def __call__(self, input):
+    (model_dim, seq_len), batch_size = input.dim()
+    total_words = seq_len * batch_size
+    return dy.reshape(input, (model_dim,), batch_size=total_words)
+
+
+class ReverseTimeDistributed(object):
+  def __call__(self, input, seq_len, batch_size):
+    (model_dim,), total_words = input.dim()
+    assert (seq_len * batch_size == total_words)
+    return dy.reshape(input, (model_dim, seq_len), batch_size=batch_size)
+
+
+class LinearSent(object):
+  def __init__(self, dy_model, input_dim, output_dim):
+    self.L = Linear(input_dim, output_dim, dy_model, init='LeCunUniform')
+
+  def __call__(self, input_expr, reconstruct_shape=True, timedistributed=False):
+    if not timedistributed:
+        input = TimeDistributed()(input_expr)
     else:
-      self.linear_keys = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model)
-      self.linear_values = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model)
-      self.linear_query = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model)
-    
-    if self.diag_gauss_mask:
-      self.diag_gauss_mask_sigma = model.add_parameters(dim=(1,1,self.head_count), init=dy.ConstInitializer(self.diag_gauss_mask))
+        input = input_expr
 
-    # Layer Norm Module
-    self.layer_norm = LayerNorm(model_dim, model)
-    
-    if self.downsampling_method=="reshape":
-      if model_dim != input_dim * downsample_factor: self.res_shortcut = PositionwiseLinear(input_dim * downsample_factor, model_dim, model)
-    else:
-      if model_dim != input_dim: self.res_shortcut = PositionwiseLinear(input_dim, model_dim, model)
- 
-  def plot_att_mat(self, mat, filename, dpi=1200):
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.matshow(mat)
-    ax.set_aspect('auto')
-    fig.savefig(filename, dpi=dpi)
-    fig.clf()
-    plt.close('all')
-
-  def shape_projection(self, x, batch_size):
-    total_words = x.dim()[1]
-    seq_len = total_words / batch_size
-    return dy.reshape_transpose_reshape(x, (self.model_dim, seq_len), (seq_len, self.dim_per_head), pre_batch_size=batch_size, post_batch_size=batch_size * self.head_count)
-
-  def __call__(self, key, value, query, att_mask, batch_mask, p):
-    """
-    :param key: DyNet expression of dimensions (input_dim, time) x batch
-    :param value: DyNet expression of dimensions (input_dim, time) x batch (None for using value = key)
-    :param query: DyNet expression of dimensions (input_dim, time) x batch (None for using query = key)
-    :param att_mask: numpy array of dimensions (time, time); pre-transposed
-    :param batch_mask: numpy array of dimensions (batch, time)
-    :param p: dropout prob
-    """
-    if value is None or query is None: assert self.is_self_att
-    sent_len = key.dim()[0][1]
-    batch_size = key[0].dim()[1]
-
-    if self.downsample_factor > 1:
-      if self.downsampling_method == "skip":
-        query_tensor = query.as_tensor() if query else key.as_tensor()
-        strided_query = ExpressionSequence(expr_tensor=dy.strided_select(query_tensor, [1,self.downsample_factor], [], []))
-        residual = TimeDistributed()(strided_query)
-        sent_len_out = len(strided_query)
-      else:
-        assert self.downsampling_method == "reshape"
-        if sent_len % self.downsample_factor != 0:
-          raise ValueError("For 'reshape' downsampling, sequence lengths must be multiples of the downsampling factor. Configure batcher accordingly.")
-        if batch_mask is not None: batch_mask = batch_mask[:,::self.downsample_factor]
-        sent_len_out = sent_len // self.downsample_factor
-        sent_len = sent_len_out
-        out_mask = key.mask
-        if self.downsample_factor > 1 and out_mask is not None:
-          out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
-
-        if query:
-          query = ExpressionSequence(expr_tensor=dy.reshape(query.as_tensor(), (query.dim()[0][0] * self.downsample_factor, query.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
-                                     mask=out_mask)
-        if key:
-          key = ExpressionSequence(expr_tensor=dy.reshape(key.as_tensor(), (key.dim()[0][0] * self.downsample_factor, key.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
-                                   mask=out_mask)
-        if value:
-          value = ExpressionSequence(expr_tensor=dy.reshape(value.as_tensor(), (value.dim()[0][0] * self.downsample_factor, value.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
-                                     mask=out_mask)
-        residual = TimeDistributed()(query or key)
-    else:
-      residual = TimeDistributed()(query or key)
-      sent_len_out = sent_len
-    if self.downsampling_method=="reshape":
-      if self.model_dim!=self.input_dim*self.downsample_factor:
-        residual = self.res_shortcut(residual)
-    else:
-      if self.model_dim!=self.input_dim:
-        residual = self.res_shortcut(residual)
-      
-    # Concatenate all the words together for doing vectorized affine transform
-    if self.is_self_att:
-      kvq_lin = self.linear_kvq(TimeDistributed()(key))
-      key_up = self.shape_projection(dy.pick_range(kvq_lin, 0, self.head_count * self.dim_per_head), batch_size) 
-      value_up = self.shape_projection(dy.pick_range(kvq_lin, self.head_count * self.dim_per_head, 2 * self.head_count * self.dim_per_head), batch_size)
-      query_up = self.shape_projection(dy.pick_range(kvq_lin, 2 * self.head_count * self.dim_per_head, 3 * self.head_count * self.dim_per_head), batch_size)
-    else:
-      key_up = self.shape_projection(self.linear_keys(TimeDistributed()(key)), batch_size) 
-      value_up = self.shape_projection(self.linear_values(TimeDistributed()(value)), batch_size)
-      query_up = self.shape_projection(self.linear_query(TimeDistributed()(query)), batch_size)
-
-#     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
-    scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head)) # scale before the matrix multiplication to save memory
-
-    # Apply Mask here
-    if not self.ignore_masks:
-      if att_mask is not None:
-        att_mask_inp = att_mask * -100.0
-        if self.broadcast_masks:
-          att_mask_inp = np.asarray(np.broadcast_to(att_mask_inp[:,:,np.newaxis], (sent_len, sent_len, self.head_count*batch_size)))
-          scaled += dy.inputTensor(att_mask_inp, batched=True)
-        else:    
-          scaled += dy.inputTensor(att_mask_inp)
-      if batch_mask is not None:
-        # reshape (batch, time) -> (time, head_count*batch), then *-100
-        inp = np.resize(np.broadcast_to(batch_mask.T[:,np.newaxis,:],
-                                        (sent_len, self.head_count, batch_size)), 
-                        (1, sent_len, self.head_count*batch_size)) \
-              * -100
-        if self.broadcast_masks:
-          inp = np.asarray(np.broadcast_to(inp, (sent_len, sent_len, self.head_count*batch_size)))
-        mask_expr = dy.inputTensor(inp, batched=True)
-        scaled += mask_expr
-      if self.diag_gauss_mask:
-        diag_growing = np.zeros((sent_len, sent_len, self.head_count))
-        for i in range(sent_len):
-          for j in range(sent_len):
-            diag_growing[i,j,:] = -(i-j)**2 / 2.0
-        e_diag_gauss_mask = dy.inputTensor(diag_growing)
-        e_sigma = dy.parameter(self.diag_gauss_mask_sigma)
-        e_sigma_sq_inv = dy.cdiv(dy.ones(e_sigma.dim()[0], batch_size=batch_size), dy.square(e_sigma))
-        e_diag_gauss_mask_final = dy.cmult(e_diag_gauss_mask, e_sigma_sq_inv)
-        scaled += dy.reshape(e_diag_gauss_mask_final, (sent_len, sent_len), batch_size=batch_size * self.head_count)
-
-    # Computing Softmax here.
-    attn = dy.softmax(scaled, d=1)
-
-    # Applying dropout to attention
-    if p>0.0:
-      drop_attn = dy.dropout(attn, p)
-    else:
-      drop_attn = attn
-
-    # Computing weighted attention score
-    attn_prod = drop_attn * value_up
-    
-    if self.downsample_factor > 1 and self.downsampling_method == "skip":
-      attn_prod = dy.strided_select(attn_prod, [self.downsample_factor], [], [])
-    
-
-    # Reshaping the attn_prod to input query dimensions
-    out = dy.reshape_transpose_reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), (self.model_dim,), pre_batch_size=batch_size, post_batch_size=batch_size*sent_len_out)
-
-    if self.plot_attention:
-      assert batch_size==1
-      mats = []
-      for i in range(attn.dim()[1]):
-        mats.append(dy.pick_batch_elem(attn, i).npvalue())
-        self.plot_att_mat(mats[-1], 
-                          "{}.sent_{}.head_{}.png".format(self.plot_attention, self.plot_attention_counter, i),
-                          300)
-      avg_mat = np.average(mats,axis=0)
-      self.plot_att_mat(avg_mat, 
-                        "{}.sent_{}.head_avg.png".format(self.plot_attention, self.plot_attention_counter),
-                        300)
-      in_val = value or key
-      cosim_before = cosine_similarity(in_val.as_tensor().npvalue().T)
-      self.plot_att_mat(cosim_before, 
-                        "{}.sent_{}.cosim_before.png".format(self.plot_attention, self.plot_attention_counter),
-                        600)
-      cosim_after = cosine_similarity(out.npvalue().T)
-      self.plot_att_mat(cosim_after, 
-                        "{}.sent_{}.cosim_after.png".format(self.plot_attention, self.plot_attention_counter),
-                        600)
-      self.plot_attention_counter += 1
-      
-    # Adding dropout and layer normalization
-    if p>0.0:
-      res = dy.dropout(out, p) + residual
-    else:
-      res = out + residual
-    ret = self.layer_norm(res)
-    return ret
+    output = self.L(input)
+    if not reconstruct_shape:
+        return output
+    (_, seq_len), batch_size = input_expr.dim()
+    return ReverseTimeDistributed()(output, seq_len, batch_size)
 
 
-class TransformerEncoderLayer(object):
-  def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
-               input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False, broadcast_masks=False,
-               plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
-               downsampling_method="skip"):
-    self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
-                                          input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
-                                          broadcast_masks=broadcast_masks, plot_attention=plot_attention,
-                                          diag_gauss_mask=diag_gauss_mask, downsampling_method=downsampling_method)
-    self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity)
-    self.head_count = head_count
-    self.downsample_factor = downsample_factor
-    self.diagonal_mask_width = diagonal_mask_width
-    if diagonal_mask_width: assert diagonal_mask_width%2==1
-    self.mask_self = mask_self
+class LinearNoBiasSent(object):
+  def __init__(self, dy_model, input_dim, output_dim):
+    self.L = Linear(input_dim, output_dim, dy_model, bias=False, init='LeCunUniform')
+    self.output_dim = output_dim
+
+  def __call__(self, input_expr):
+    (_, seq_len), batch_size = input_expr.dim()
+    output = self.L(input_expr)
+
+    if seq_len == 1: # This is helpful when sequence length is 1, especially during decoding
+        output = ReverseTimeDistributed()(output, seq_len, batch_size)
+    return output
+
+
+class LayerNorm(object):
+  def __init__(self, dy_model, d_hid):
+    self.p_g = dy_model.add_parameters(dim=d_hid)
+    self.p_b = dy_model.add_parameters(dim=d_hid)
+
+  def __call__(self, input_expr):
+    g = dy.parameter(self.p_g)
+    b = dy.parameter(self.p_b)
+
+    (_, seq_len), batch_size = input_expr.dim()
+    input = TimeDistributed()(input_expr)
+    output = dy.layer_norm(input, g, b)
+    return ReverseTimeDistributed()(output, seq_len, batch_size)
+
+
+class MultiHeadAttention(object):
+  """ Multi Head Attention Layer for Sentence Blocks
+  """
+  def __init__(self, dy_model, n_units, h=1, attn_dropout=False):
+    self.W_Q = LinearNoBiasSent(dy_model, n_units, n_units)
+    self.W_K = LinearNoBiasSent(dy_model, n_units, n_units)
+    self.W_V = LinearNoBiasSent(dy_model, n_units, n_units)
+    self.finishing_linear_layer = LinearNoBiasSent(dy_model, n_units, n_units)
+    self.h = h
+    self.scale_score = 1. / (n_units / h) ** 0.5
+    self.attn_dropout = attn_dropout
+
+  def split_rows(self, X, h):
+    (n_rows, _), batch = X.dim()
+    l = range(n_rows)
+    steps = n_rows // h
+    output = []
+    for i in range(0, n_rows, steps):
+      output.append(dy.pickrange(X, i, i + steps))
+    return output
+
+  def split_batch(self, X, h):
+    (n_rows, _), batch = X.dim()
+    l = range(batch)
+    steps = batch // h
+    output = []
+    for i in range(0, batch, steps):
+      indexes = l[i:i + steps]
+      output.append(dy.pick_batch_elems(X, indexes))
+    return output
 
   def set_dropout(self, dropout):
     self.dropout = dropout
 
-  def transduce(self, x):
-    seq_len = len(x)
-    batch_size = x[0].dim()[1]
+  def __call__(self, x, z=None, mask=None):
+    h = self.h
+    if z == None:
+      Q = self.W_Q(x)
+      K = self.W_K(x)
+      V = self.W_V(x)
+    else:
+      Q = self.W_Q(x)
+      K = self.W_K(z)
+      V = self.W_V(z)
 
-    att_mask = None
-    if self.diagonal_mask_width is not None or self.mask_self:
-      if self.diagonal_mask_width is None:
-        att_mask = np.zeros((seq_len,seq_len))
-      else:
-        att_mask = np.ones((seq_len, seq_len))
-        for i in range(seq_len):
-          from_i = max(0, i-self.diagonal_mask_width//2)
-          to_i = min(seq_len, i+self.diagonal_mask_width//2+1)
-          att_mask[from_i:to_i,from_i:to_i] = 0.0
+    (n_units, n_querys), batch = Q.dim()
+    (_, n_keys), _ = K.dim()
 
-      if self.mask_self:
-        for i in range(seq_len):
-            att_mask[i,i] = 1.0
-      
-        
-    mid = self.self_attn(key=x, value=None, query=None, att_mask=att_mask, batch_mask=x.mask.np_arr if x.mask else None, p=self.dropout)
-    if self.downsample_factor > 1:
-      seq_len = int(math.ceil(seq_len / float(self.downsample_factor)))
-    out = self.feed_forward(mid, p=self.dropout)
+    batch_Q = dy.concatenate_to_batch(self.split_rows(Q, h))
+    batch_K = dy.concatenate_to_batch(self.split_rows(K, h))
+    batch_V = dy.concatenate_to_batch(self.split_rows(V, h))
 
-    out_mask = x.mask
-    if self.downsample_factor > 1 and out_mask is not None:
-      out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
-    
-    return ExpressionSequence(expr_tensor=dy.reshape(out, (out.dim()[0][0], seq_len), batch_size=batch_size), mask=out_mask)
+    assert(batch_Q.dim() == (n_units // h, n_querys), batch * h)
+    assert(batch_K.dim() == (n_units // h, n_keys), batch * h)
+    assert(batch_V.dim() == (n_units // h, n_keys), batch * h)
+
+    mask = np.concatenate([mask] * h, axis=0)
+    mask = np.moveaxis(mask, [1, 0, 2], [0, 2, 1])
+    mask = dy.inputTensor(mask, batched=True)
+    batch_A = (dy.transpose(batch_Q) * batch_K) * self.scale_score
+    batch_A = dy.cmult(batch_A, mask) + (1 - mask)*MIN_VALUE
+
+    sent_len = batch_A.dim()[0][0]
+    if sent_len == 1:
+        batch_A = dy.softmax(batch_A)
+    else:
+        batch_A = dy.softmax(batch_A, d=1)
+
+    batch_A = dy.cmult(batch_A, mask)
+    assert (batch_A.dim() == ((n_querys, n_keys), batch * h))
+
+    if self.attn_dropout:
+      if self.dropout != 0.0:
+        batch_A = dy.dropout(batch_A, self.dropout)
+
+    batch_C = dy.transpose(batch_A * dy.transpose(batch_V))
+    assert (batch_C.dim() == ((n_units // h, n_querys), batch * h))
+
+    C = dy.concatenate(self.split_batch(batch_C, h), d=0)
+    assert (C.dim() == ((n_units, n_querys), batch))
+    C = self.finishing_linear_layer(C)
+    return C
 
 
+class FeedForwardLayerSent(object):
+  def __init__(self, dy_model, n_units):
+    n_inner_units = n_units * 4
+    self.W_1 = LinearSent(dy_model, n_units, n_inner_units)
+    self.W_2 = LinearSent(dy_model, n_inner_units, n_units)
+    self.act = dy.rectify
 
-class TransformerSeqTransducer(SeqTransducer, Serializable):
-  yaml_tag = u'!TransformerSeqTransducer'
+  def __call__(self, e):
+    e = self.W_1(e, reconstruct_shape=False, timedistributed=True)
+    e = self.act(e)
+    e = self.W_2(e, reconstruct_shape=False, timedistributed=True)
+    return e
 
-  def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=512, 
-               head_count=8, ff_hidden_dim=2048, dropout=None, 
-               downsample_factor=1, diagonal_mask_width=None, mask_self=False,
-               ignore_masks=False, broadcast_masks=False, plot_attention=None,
-               nonlinearity=None, positional_encoding=False,
-               diag_gauss_mask=False, downsampling_method="skip"):
+
+class EncoderLayer(object):
+  def __init__(self, dy_model, n_units, h=1, attn_dropout=False, layer_norm=False):
+    self.self_attention = MultiHeadAttention(dy_model, n_units, h, attn_dropout=attn_dropout)
+    self.feed_forward = FeedForwardLayerSent(dy_model, n_units)
+    self.layer_norm = layer_norm
+    if self.layer_norm:
+      self.ln_1 = LayerNorm(dy_model, n_units)
+      self.ln_2 = LayerNorm(dy_model, n_units)
+
+  def set_dropout(self, dropout):
+    self.dropout = dropout
+
+  def __call__(self, e, xx_mask):
+    self.self_attention.set_dropout(self.dropout)
+    sub = self.self_attention(e, mask=xx_mask)
+    if self.dropout != 0.0:
+      sub = dy.dropout(sub, self.dropout)
+    e = e + sub
+    if self.layer_norm:
+      e = self.ln_1(e)
+
+    sub = self.feed_forward(e)
+    if self.dropout != 0.0:
+      sub = dy.dropout(sub, self.dropout)
+    e = e + sub
+    if self.layer_norm:
+      e = self.ln_2(e)
+    return e
+
+
+class DecoderLayer(object):
+  def __init__(self, dy_model, n_units, h=1, attn_dropout=False, layer_norm=False):
+    self.self_attention = MultiHeadAttention(dy_model, n_units, h, attn_dropout=attn_dropout)
+    self.source_attention = MultiHeadAttention(dy_model, n_units, h, attn_dropout=attn_dropout)
+    self.feed_forward = FeedForwardLayerSent(dy_model, n_units)
+    self.layer_norm = layer_norm
+    if self.layer_norm:
+      self.ln_1 = LayerNorm(dy_model, n_units)
+      self.ln_2 = LayerNorm(dy_model, n_units)
+      self.ln_3 = LayerNorm(dy_model, n_units)
+
+  def set_dropout(self, dropout):
+    self.dropout = dropout
+
+  def __call__(self, e, s, xy_mask, yy_mask):
+    self.self_attention.set_dropout(self.dropout)
+    sub = self.self_attention(e, mask=yy_mask)
+    if self.dropout != 0.0:
+      sub = dy.dropout(sub, self.dropout)
+    e = e + sub
+    if self.layer_norm:
+      e = self.ln_1(e)
+
+    self.source_attention.set_dropout(self.dropout)
+    sub = self.source_attention(e, s, mask=xy_mask)
+    if self.dropout != 0.0:
+      sub = dy.dropout(sub, self.dropout)
+    e = e + sub
+    if self.layer_norm:
+      e = self.ln_2(e)
+
+    sub = self.feed_forward(e)
+    if self.dropout != 0.0:
+      sub = dy.dropout(sub, self.dropout)
+    e = e + sub
+    if self.layer_norm:
+      e = self.ln_3(e)
+    return e
+
+
+class TransformerEncoder(Serializable):
+  yaml_tag = u'!TransformerEncoder'
+
+  def __init__(self, yaml_context, layers=1, input_dim=512, h=1,
+               dropout=0.0, attn_dropout=False, layer_norm=False, **kwargs):
     register_handler(self)
-    param_col = yaml_context.dynet_param_collection.param_col
-    self.input_dim = input_dim
-    self.hidden_dim = hidden_dim
-    self.dropout = dropout or yaml_context.dropout
-    nonlinearity = nonlinearity or yaml_context.nonlinearity
-    self.layers = layers
-    self.modules = []
-    self.positional_encoding = positional_encoding
-    self.position_encoding_block = None
-    for layer_i in range(layers):
-      if plot_attention is not None:
-        plot_attention_layer = "{}.layer_{}".format(plot_attention, layer_i)
-      else:
-        plot_attention_layer = None
-      self.modules.append(TransformerEncoderLayer(hidden_dim, param_col, 
-                                                  downsample_factor=downsample_factor, 
-                                                  input_dim=input_dim if layer_i==0 else hidden_dim,
-                                                  head_count=head_count, ff_hidden_dim=ff_hidden_dim,
-                                                  diagonal_mask_width=diagonal_mask_width,
-                                                  mask_self=mask_self,
-                                                  ignore_masks=ignore_masks,
-                                                  broadcast_masks=broadcast_masks,
-                                                  plot_attention=plot_attention_layer,
-                                                  nonlinearity=nonlinearity,
-                                                  diag_gauss_mask=diag_gauss_mask,
-                                                  downsampling_method=downsampling_method))
+    dy_model = yaml_context.dynet_param_collection.param_col
+    input_dim = input_dim or yaml_context.default_layer_dim
+    self.layer_names = []
+    for i in range(1, layers + 1):
+      name = 'l{}'.format(i)
+      layer = EncoderLayer(dy_model, input_dim, h, attn_dropout, layer_norm)
+      self.layer_names.append((name, layer))
 
-  def __call__(self, sent):
-    if self.positional_encoding:
-      if self.position_encoding_block is None or self.position_encoding_block.shape[2] < len(sent):
-        self.initialize_position_encoding(int(len(sent) * 1.2), self.input_dim)
-      sent = ExpressionSequence(expr_tensor=sent.as_tensor() + dy.inputTensor(self.position_encoding_block[0, :, :len(sent)]), mask=sent.mask)
-    for module in self.modules:
-      enc_sent = module.transduce(sent)
-      sent = enc_sent
-    self._final_states = [FinalTransducerState(sent[-1])]
-    return sent
+    self.dropout_val = dropout or yaml_context.dropout
 
   @handle_xnmt_event
   def on_set_train(self, val):
-    for module in self.modules:
-      module.set_dropout(self.dropout if val else 0.0)
+    self.set_dropout(self.dropout_val if val else 0.0)
 
-  def initialize_position_encoding(self, length, n_units):
-    # Implementation in the Google tensor2tensor repo
-    channels = n_units
-    position = np.arange(length, dtype='f')
-    num_timescales = channels // 2
-    log_timescale_increment = (np.log(10000. / 1.) / (float(num_timescales) - 1))
-    inv_timescales = 1. * np.exp(np.arange(num_timescales).astype('f') * -log_timescale_increment)
-    scaled_time = np.expand_dims(position, 1) * np.expand_dims(inv_timescales, 0)
-    signal = np.concatenate([np.sin(scaled_time), np.cos(scaled_time)], axis=1)
-    signal = np.reshape(signal, [1, length, channels])
-    self.position_encoding_block = np.transpose(signal, (0, 2, 1))
+  def set_dropout(self, dropout):
+    self.dropout = dropout
+
+  def __call__(self, e, xx_mask):
+    if self.dropout != 0.0:
+      e = dy.dropout(e, self.dropout)  # Word Embedding Dropout
+
+    for name, layer in self.layer_names:
+      layer.set_dropout(self.dropout)
+      e = layer(e, xx_mask)
+    return e
+
+
+class TransformerDecoder(Serializable):
+  yaml_tag = u'!TransformerDecoder'
+
+  def __init__(self, yaml_context, vocab_size, layers=1, input_dim=512, h=1,
+               label_smoothing=0.0, dropout=0.0, attn_dropout=False, layer_norm=False, **kwargs):
+    register_handler(self)
+    dy_model = yaml_context.dynet_param_collection.param_col
+    input_dim = input_dim or yaml_context.default_layer_dim
+    self.layer_names = []
+    for i in range(1, layers + 1):
+      name = 'l{}'.format(i)
+      layer = DecoderLayer(dy_model, input_dim, h, attn_dropout, layer_norm)
+      self.layer_names.append((name, layer))
+
+    self.output_affine = LinearSent(dy_model, input_dim, vocab_size)
+    self.dropout_val = dropout or yaml_context.dropout
+
+  @handle_xnmt_event
+  def on_set_train(self, val):
+    self.set_dropout(self.dropout_val if val else 0.0)
+
+  def set_dropout(self, dropout):
+    self.dropout = dropout
+
+  def __call__(self, e, source, xy_mask, yy_mask):
+    if self.dropout != 0.0:
+      e = dy.dropout(e, self.dropout)  # Word Embedding Dropout
+    for name, layer in self.layer_names:
+      layer.set_dropout(self.dropout)
+      e = layer(e, source, xy_mask, yy_mask)
+    return e
+
+  def output_and_loss(self, h_block, concat_t_block):
+    concat_logit_block = self.output_affine(h_block, reconstruct_shape=False)
+    bool_array = concat_t_block != 0
+    indexes = np.argwhere(bool_array).ravel()
+    concat_logit_block = dy.pick_batch_elems(concat_logit_block, indexes)
+    concat_t_block = concat_t_block[bool_array]
+    loss = dy.pickneglogsoftmax_batch(concat_logit_block, concat_t_block)
+    return loss
+
+  def output(self, h_block):
+    concat_logit_block = self.output_affine(h_block, reconstruct_shape=False, timedistributed=True)
+    return concat_logit_block
+
 

@@ -11,10 +11,10 @@ speech-2layers:
     eval_metrics: cer,wer
     save_num_checkpoints: 2
   train: !SimpleTrainingRegimen
-    run_for_epochs: 5
+    run_for_epochs: 20
     src_format: contvec
     batcher: !SrcBatcher
-      pad_to_multiple: 4
+      pad_src_to_multiple: 4
       batch_size: 3
     trainer: !AdamTrainer {}
     dev_metrics: cer,wer

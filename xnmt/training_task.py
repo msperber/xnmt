@@ -44,20 +44,6 @@ class TrainingTask(object):
     """
     raise NotImplementedError("")
 
-  def update_weights(self, loss, trainer, dynet_profiling):
-    """
-    Standardized way to perform backward pass and parameter updates.
-    Can be sidestepped e.g. for custom multitask training logic.
-    
-    :param loss: Result of self.training_step(...)
-    :param trainer: DyNet trainer / xnmt.optimizer object
-    :param dynet_profiling: if > 0, print the computation graph 
-    """
-    if dynet_profiling and dynet_profiling > 0:
-      dy.print_text_graphviz()
-    loss.backward()
-    trainer.update()
-  
   def checkpoint_needed(self):
     raise NotImplementedError()
 
@@ -79,10 +65,32 @@ class SimpleTrainingTask(TrainingTask, Serializable):
   yaml_tag = u'!SimpleTrainingTask'
   def __init__(self, yaml_context, corpus_parser, model, glob={},
                dev_every=0, batcher=None, loss_calculator=None, 
-               pretrained_model_file="", src_format="text", trainer=None, 
-               run_for_epochs=None, lr_decay=1.0, lr_decay_times=3, attempts_before_lr_decay=1,
+               pretrained_model_file="", src_format="text", run_for_epochs=None,
+               lr_decay=1.0, lr_decay_times=3, patience=1, initial_patience=None,
                dev_metrics="", schedule_metric="loss", restart_trainer=False,
                reload_command=None, name=None, inference=None):
+    """
+    :param yaml_context:
+    :param corpus_parser: an input.InputReader object
+    :param model: a generator.GeneratorModel object
+    :param dev_every (int): dev checkpoints every n sentences (0 for only after epoch)
+    :param batcher: Type of batcher. Defaults to SrcBatcher of batch size 32.
+    :param loss_calculator:
+    :param pretrained_model_file: Path of pre-trained model file
+    :param src_format: Format of input data: text/contvec
+    :param lr_decay (float):
+    :param lr_decay_times (int):  Early stopping after decaying learning rate a certain number of times
+    :param patience (int): apply LR decay after dev scores haven't improved over this many checkpoints
+    :param initial_patience (int): if given, allows adjusting patience for the first LR decay
+    :param dev_metrics: Comma-separated list of evaluation metrics (bleu/wer/cer)
+    :param schedule_metric: determine learning schedule based on this dev_metric (loss/bleu/wer/cer)
+    :param restart_trainer: Restart trainer (useful for Adam) and revert weights to best dev checkpoint when applying LR decay (https://arxiv.org/pdf/1706.09733.pdf)
+    :param reload_command: Command to change the input data after each epoch.
+                           --epoch EPOCH_NUM will be appended to the command.
+                           To just reload the data after each epoch set the command to 'true'.
+    :param name: will be prepended to log outputs if given
+    :param inference: used for inference during dev checkpoints if dev_metrics are specified
+    """
     assert yaml_context is not None
     self.yaml_context = yaml_context
     self.model_file = self.yaml_context.dynet_param_collection.model_file
@@ -91,7 +99,8 @@ class SimpleTrainingTask(TrainingTask, Serializable):
     if lr_decay > 1.0 or lr_decay <= 0.0:
       raise RuntimeError("illegal lr_decay, must satisfy: 0.0 < lr_decay <= 1.0")
     self.lr_decay = lr_decay
-    self.attempts_before_lr_decay = attempts_before_lr_decay
+    self.patience = patience
+    self.initial_patience = initial_patience
     self.lr_decay_times = lr_decay_times
     self.restart_trainer = restart_trainer
     self.run_for_epochs = run_for_epochs
@@ -292,10 +301,10 @@ class SimpleTrainingTask(TrainingTask, Serializable):
         evaluate_args["ref_file"] = out_file_ref
       # Decoding + post_processing
       self.inference(corpus_parser = self.corpus_parser, generator = self.model,
-                        src_file = self.corpus_parser.training_corpus.dev_src,
-                        trg_file = trg_file,
-                        batcher=self.batcher,
-                        candidate_id_file = self.corpus_parser.training_corpus.dev_id_file)
+                     batcher = self.batcher,
+                     src_file = self.corpus_parser.training_corpus.dev_src,
+                     trg_file = trg_file,
+                     candidate_id_file = self.corpus_parser.training_corpus.dev_id_file)
       output_processor = self.inference.get_output_processor() # TODO: hack, refactor
       # Copy Trg to Ref
       processed = []
@@ -322,7 +331,7 @@ class SimpleTrainingTask(TrainingTask, Serializable):
       if metric != self.schedule_metric:
         self.logger.report_auxiliary_score(eval_scores[metric])
     
-    if control_learning_schedule:
+    if control_learning_schedule: # TODO: should probably pull this out somehow
       print("> Checkpoint")
       # Write out the model if it's the best one
       if self.logger.report_dev_and_check_model(self.model_file):
@@ -332,18 +341,24 @@ class SimpleTrainingTask(TrainingTask, Serializable):
       else:
         # otherwise: learning rate decay / early stopping
         self.training_state.cur_attempt += 1
-        if self.lr_decay < 1.0 and self.training_state.cur_attempt >= self.attempts_before_lr_decay:
-          self.training_state.num_times_lr_decayed += 1
-          if self.training_state.num_times_lr_decayed > self.lr_decay_times:
-            print('  Early stopping')
-            self.early_stopping_reached = True
-          else:
-            self.trainer.learning_rate *= self.lr_decay
-            print('  new learning rate: %s' % self.trainer.learning_rate)
-            if self.restart_trainer:
-              print('  restarting trainer and reverting learned weights to best checkpoint..')
-              self.trainer.restart()
-              self.yaml_context.dynet_param_collection.revert_to_best_model()
+        if self.lr_decay < 1.0:
+          should_decay = False
+          if (self.initial_patience is None or self.training_state.num_times_lr_decayed>0) and self.training_state.cur_attempt >= self.patience:
+            should_decay = True
+          if self.initial_patience is not None and self.training_state.num_times_lr_decayed==0 and self.training_state.cur_attempt >= self.initial_patience:
+            should_decay = True
+          if should_decay:
+            self.training_state.num_times_lr_decayed += 1
+            if self.training_state.num_times_lr_decayed > self.lr_decay_times:
+              print('  Early stopping')
+              self.early_stopping_reached = True
+            else:
+              self.trainer.learning_rate *= self.lr_decay
+              print('  new learning rate: %s' % self.trainer.learning_rate)
+              if self.restart_trainer:
+                print('  restarting trainer and reverting learned weights to best checkpoint..')
+                self.trainer.restart()
+                self.yaml_context.dynet_param_collection.revert_to_best_model()
 
     return ret
 
