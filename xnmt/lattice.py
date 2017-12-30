@@ -192,7 +192,6 @@ class LatticeEmbedder(SimpleWordEmbedder, Serializable):
     self.word_dropout = word_dropout
     self.embeddings = yaml_context.dynet_param_collection.param_col.add_lookup_parameters((self.vocab_size, self.emb_dim))
     self.word_id_mask = None
-    self.train = False
     self.weight_noise = 0.0
     self.fix_norm = None
     self.arc_dropout = arc_dropout
@@ -202,11 +201,14 @@ class LatticeEmbedder(SimpleWordEmbedder, Serializable):
       assert len(sent)==1, "LatticeEmbedder requires batch size of 1"
       assert sent.mask is None
       sent = sent[0]
-    if self.arc_dropout > 0.0:
+    if self.train and self.arc_dropout > 0.0:
       sent = sent.drop_arcs(self.arc_dropout)
     embedded_nodes = [word.new_node_with_val(self.embed(word.value)) for word in sent]
     return Lattice(nodes=embedded_nodes)
 
+  @handle_xnmt_event
+  def on_set_train(self, val):
+    self.train = val
 
 
 class LatticeLSTMTransducer(Transducer):
