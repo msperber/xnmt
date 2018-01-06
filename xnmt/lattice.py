@@ -219,7 +219,7 @@ class LatticeLSTMTransducer(Transducer):
     self.hidden_dim = hidden_dim
     model = yaml_context.dynet_param_collection.param_col
 
-    # [i; f; o; g]
+    # [i; o; g]
     self.p_Wx_iog = model.add_parameters(dim=(hidden_dim*3, input_dim))
     self.p_Wh_iog = model.add_parameters(dim=(hidden_dim*3, hidden_dim))
     self.p_b_iog  = model.add_parameters(dim=(hidden_dim*3,), init=dy.ConstInitializer(0.0))
@@ -277,7 +277,6 @@ class LatticeLSTMTransducer(Transducer):
         for pred in x_t.nodes_prev:
           i_ft_list.append(dy.logistic(dy.affine_transform([b_f, Wx_f, val, Wh_f, h[pred]])))
       i_ait = dy.pick_range(tmp_iog, 0, self.hidden_dim)
-#       i_aft = dy.pick_range(tmp, self.hidden_dim, self.hidden_dim*2)
       i_aot = dy.pick_range(tmp_iog, self.hidden_dim, self.hidden_dim*2)
       i_agt = dy.pick_range(tmp_iog, self.hidden_dim*2, self.hidden_dim*3)
 
@@ -295,37 +294,8 @@ class LatticeLSTMTransducer(Transducer):
       if self.dropout_rate > 0.0 and self.train:
         h_t = dy.cmult(h_t, self.dropout_mask_h)
       h.append(h_t)
-#     self._final_states = [FinalTransducerState(dy.reshape(h[-1], (self.hidden_dim,)),\
-#                                                dy.reshape(c[-1], (self.hidden_dim,)))]
     self._final_states = [FinalTransducerState(h[-1], c[-1])]
     return Lattice(nodes=[node_t.new_node_with_val(h_t) for node_t, h_t in zip(lattice.nodes,h)])
-
-
-#   def seq_lstm_call(self, xs):
-#     Wx = dy.parameter(self.p_Wx)
-#     Wh = dy.parameter(self.p_Wh)
-#     b = dy.parameter(self.p_b)
-#     h = []
-#     c = []
-#     for i, x_t in enumerate(xs):
-#       if i==0:
-#         tmp = dy.affine_transform([b, Wx, x_t])
-#       else:
-#         tmp = dy.affine_transform([b, Wx, x_t, Wh, h[-1]])
-#       i_ait = dy.pick_range(tmp, 0, self.hidden_dim)
-#       i_aft = dy.pick_range(tmp, self.hidden_dim, self.hidden_dim*2)
-#       i_aot = dy.pick_range(tmp, self.hidden_dim*2, self.hidden_dim*3)
-#       i_agt = dy.pick_range(tmp, self.hidden_dim*3, self.hidden_dim*4)
-#       i_it = dy.logistic(i_ait)
-#       i_ft = dy.logistic(i_aft + 1.0)
-#       i_ot = dy.logistic(i_aot)
-#       i_gt = dy.tanh(i_agt)
-#       if i==0:
-#         c.append(dy.cmult(i_it, i_gt))
-#       else:
-#         c.append(dy.cmult(i_ft, c[-1]) + dy.cmult(i_it, i_gt))
-#       h.append(dy.cmult(i_ot, dy.tanh(c[-1])))
-#     return h
 
 class BiLatticeLSTMTransducer(Transducer, Serializable):
   yaml_tag = u'!BiLatticeLSTMTransducer'
