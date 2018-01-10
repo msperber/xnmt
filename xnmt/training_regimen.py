@@ -228,7 +228,7 @@ class MultiTaskTrainingRegimen(TrainingRegimen):
   Base class for multi-task training classes.
   Mainly initializes tasks, performs sanity-checks, and manages set_train events.
   """
-  def __init__(self, yaml_context, tasks, trainer=None, dynet_profiling=0):
+  def __init__(self, yaml_context, tasks, trainer=None, pretrained_model_file="", dynet_profiling=0):
     """
     :param tasks: list of TrainingTask instances.
                   The first item takes on the role of the main task, meaning it
@@ -288,10 +288,11 @@ class SameBatchMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
   are thus performed jointly for each task. The relative weight between
   tasks can be configured by setting each tasks batch size accordingly.
   """
-  def __init__(self, yaml_context, tasks, trainer=None, dynet_profiling=0):
+  def __init__(self, yaml_context, tasks, trainer=None, pretrained_model_file="", dynet_profiling=0):
     super(SameBatchMultiTaskTrainingRegimen, self).__init__(yaml_context,
                                                  tasks=tasks, trainer=trainer,
-                                                 dynet_profiling=dynet_profiling)
+                                                 dynet_profiling=dynet_profiling,
+                                                 pretrained_model_file=pretrained_model_file)
     self.yaml_context = yaml_context
   def run_training(self, update_weights=True):
     task_generators = OrderedDict()
@@ -328,9 +329,10 @@ class AlternatingBatchMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Seriali
   are only loaded individually. It also supports disabling training for some
   tasks by setting the task weight to 0.
   """
-  def __init__(self, yaml_context, tasks, task_weights=None, trainer=None, dynet_profiling=0):
+  def __init__(self, yaml_context, tasks, task_weights=None, trainer=None, pretrained_model_file="", dynet_profiling=0):
     super(AlternatingBatchMultiTaskTrainingRegimen, self).__init__(yaml_context,
                                                   tasks=tasks, trainer=trainer,
+                                                  pretrained_model_file=pretrained_model_file,
                                                   dynet_profiling=dynet_profiling)
     self.task_weights = task_weights or [1./len(tasks)] * len(tasks) 
     self.yaml_context = yaml_context
@@ -368,7 +370,7 @@ class SerialMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
 
   yaml_tag = u"!SerialMultiTaskTrainingRegimen"
   
-  def __init__(self, yaml_context, tasks, trainer=None, dynet_profiling=0):
+  def __init__(self, yaml_context, tasks, trainer=None, pretrained_model_file="", dynet_profiling=0):
     """
     :param tasks: list of TrainingTask instances. The currently active task is treated as main task.
     :param trainer: Trainer object, default is SGD with learning rate 0.1
@@ -376,6 +378,7 @@ class SerialMultiTaskTrainingRegimen(MultiTaskTrainingRegimen, Serializable):
     """
     super(SerialMultiTaskTrainingRegimen, self).__init__(yaml_context,
                                                   tasks=tasks, trainer=trainer,
+                                                  pretrained_model_file=pretrained_model_file,
                                                   dynet_profiling=dynet_profiling)
     self.yaml_context = yaml_context
   def run_training(self, update_weights=True):
