@@ -74,6 +74,9 @@ class BinnedLattice(Lattice):
     super(BinnedLattice, self).__init__(nodes = self.bins_to_nodes(bins))
     self.bins = bins
   
+  def __repr__(self):
+    return str(self.bins)
+  
   def bins_to_nodes(self, bins, drop_arcs=0.0):
     assert len(bins[0]) == len(bins[-1]) == len(bins[0][0]) == len(bins[-1][0]) == 1
     nodes = [LatticeNode([], [1], bins[0][0][0])]
@@ -197,6 +200,7 @@ class LatticeEmbedder(SimpleWordEmbedder, Serializable):
     self.arc_dropout = arc_dropout
 
   def embed_sent(self, sent):
+    print("embedding sent:", sent)
     if is_batched(sent):
       assert len(sent)==1, "LatticeEmbedder requires batch size of 1"
       assert sent.mask is None
