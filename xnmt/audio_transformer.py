@@ -16,7 +16,7 @@ MIN_VAL = -10000   # This value is close to NEG INFINITY
 class MultiHeadedAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
                is_self_att=False, ignore_masks=False, plot_attention=None,
-               diag_gauss_mask=False, downsampling_method="skip"):
+               diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip"):
     """
     :param head_count: number of self-att heads
     :param model_dim: 
@@ -45,6 +45,7 @@ class MultiHeadedAttention(object):
     
     self.ignore_masks = ignore_masks
     self.diag_gauss_mask = diag_gauss_mask
+    self.square_mask_std = square_mask_std
     
     self.is_self_att = is_self_att
     
@@ -172,6 +173,8 @@ class MultiHeadedAttention(object):
             diag_growing[i,j,:] = -(i-j)**2 / 2.0
         e_diag_gauss_mask = dy.inputTensor(diag_growing)
         e_sigma = dy.parameter(self.diag_gauss_mask_sigma)
+        if self.square_mask_std:
+          e_sigma = dy.square(e_sigma)
         e_sigma_sq_inv = dy.cdiv(dy.ones(e_sigma.dim()[0], batch_size=batch_size), dy.square(e_sigma))
         e_diag_gauss_mask_final = dy.cmult(e_diag_gauss_mask, e_sigma_sq_inv)
         scaled += dy.reshape(e_diag_gauss_mask_final, (sent_len, sent_len), batch_size=batch_size * self.head_count)
@@ -234,11 +237,12 @@ class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
-               downsampling_method="skip"):
+               square_mask_std=False, downsampling_method="skip"):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
                                           input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
                                           plot_attention=plot_attention,
-                                          diag_gauss_mask=diag_gauss_mask, downsampling_method=downsampling_method)
+                                          diag_gauss_mask=diag_gauss_mask, square_mask_std=square_mask_std,
+                                          downsampling_method=downsampling_method)
     self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity)
     self.head_count = head_count
     self.downsample_factor = downsample_factor
@@ -290,7 +294,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
                ignore_masks=False, plot_attention=None,
                nonlinearity=None, positional_encoding=False, positional_encoding_concat=0,
-               diag_gauss_mask=False, downsampling_method="skip"):
+               diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip"):
     register_handler(self)
     param_col = yaml_context.dynet_param_collection.param_col
     self.input_dim = input_dim = input_dim + positional_encoding_concat
@@ -318,6 +322,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   plot_attention=plot_attention_layer,
                                                   nonlinearity=nonlinearity,
                                                   diag_gauss_mask=diag_gauss_mask,
+                                                  square_mask_std=square_mask_std,
                                                   downsampling_method=downsampling_method))
 
   def __call__(self, sent):
