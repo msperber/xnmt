@@ -200,7 +200,6 @@ class LatticeEmbedder(SimpleWordEmbedder, Serializable):
     self.arc_dropout = arc_dropout
 
   def embed_sent(self, sent):
-    print("embedding sent:", sent)
     if is_batched(sent):
       assert len(sent)==1, "LatticeEmbedder requires batch size of 1"
       assert sent.mask is None
