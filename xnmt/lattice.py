@@ -10,6 +10,7 @@ from xnmt.vocab import Vocab
 from xnmt.embedder import SimpleWordEmbedder
 from xnmt.events import register_handler, handle_xnmt_event
 from xnmt.batcher import is_batched
+from xnmt.expression_sequence import ExpressionSequence
 
 class LatticeNode(object):
   def __init__(self, nodes_prev, nodes_next, value):
@@ -79,7 +80,7 @@ class BinnedLattice(Lattice):
   
   def bins_to_nodes(self, bins, drop_arcs=0.0):
     assert len(bins[0]) == len(bins[-1]) == len(bins[0][0]) == len(bins[-1][0]) == 1
-    nodes = [LatticeNode([], [1], bins[0][0][0])]
+    nodes = [LatticeNode([], [], bins[0][0][0])]
     prev_indices = [0]
     for cur_bin in bins[1:-1]:
       new_prev_indices = []
@@ -324,6 +325,9 @@ class BiLatticeLSTMTransducer(Transducer, Serializable):
     return self._final_states
 
   def __call__(self, lattice):
+    if isinstance(lattice, ExpressionSequence):
+      lattice = Lattice([LatticeNode([i-1] if i>0 else [], [i+1] if i<len(lattice)-1 else [], value) for (i,value) in enumerate(lattice)])
+    
     # first layer
     forward_es = self.forward_layers[0](lattice)
     rev_backward_es = self.backward_layers[0](lattice.reversed())
