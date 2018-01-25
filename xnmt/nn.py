@@ -5,7 +5,8 @@ from xnmt.expression_sequence import ExpressionSequence
 from xnmt.batch_norm import BatchNorm
 from xnmt.transducer import SeqTransducer
 from xnmt.events import register_handler, handle_xnmt_event
-from xnmt.serializer import Serializable
+from xnmt.serialize.serializable import Serializable
+from xnmt.serialize.tree_tools import Ref, Path
 
 class WeightNoise(object):
   def __init__(self, std):
@@ -88,8 +89,8 @@ class TimePadder(object):
       
 
 class NiNLayer(SeqTransducer):
-  def __init__(self, yaml_context, input_dim, hidden_dim, use_proj=True,
-               use_bn=True, nonlinearity="rectify", downsampling_factor=1):
+  def __init__(self, input_dim, hidden_dim, use_proj=True, use_bn=True,
+               nonlinearity="rectify", downsampling_factor=1, xnmt_global=Ref(Path("xnmt_global"))):
     register_handler(self)
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
@@ -98,16 +99,16 @@ class NiNLayer(SeqTransducer):
     if nonlinearity=="id":
       self.nonlinearity = lambda x: x
     else:
-      self.nonlinearity = getattr(dy, nonlinearity or yaml_context.non_linearity)
+      self.nonlinearity = getattr(dy, nonlinearity)
     self.downsampling_factor = downsampling_factor
     self.timePadder = TimePadder(mode="zero")
     if downsampling_factor < 1: raise ValueError("downsampling_factor must be >= 1")
     if not use_proj:
       if hidden_dim!=input_dim*downsampling_factor: raise ValueError("disabling projections requires hidden_dim == input_dim*downsampling_factor") 
     if use_proj:
-      self.p_proj = yaml_context.dynet_param_collection.param_col.add_parameters(dim=(hidden_dim, input_dim*downsampling_factor))
+      self.p_proj = xnmt_global.dynet_param_collection.param_col.add_parameters(dim=(hidden_dim, input_dim*downsampling_factor))
     if self.use_bn:
-      self.bn = BatchNorm(yaml_context.dynet_param_collection.param_col, hidden_dim, 2, time_first=False)
+      self.bn = BatchNorm(xnmt_global.dynet_param_collection.param_col, hidden_dim, 2, time_first=False)
       
   def __call__(self, es):
     """

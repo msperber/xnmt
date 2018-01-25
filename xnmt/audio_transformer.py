@@ -6,7 +6,8 @@ import numpy as np
 from xnmt.expression_sequence import ExpressionSequence
 from xnmt.nn import LayerNorm, Linear, PositionwiseFeedForward, TimeDistributed, PositionwiseLinear
 from xnmt.transducer import SeqTransducer, FinalTransducerState
-from xnmt.serializer import Serializable
+from xnmt.serialize.serializable import Serializable
+from xnmt.serialize.tree_tools import Ref, Path
 from xnmt.events import register_handler, handle_xnmt_event
 
 
@@ -289,18 +290,17 @@ class TransformerEncoderLayer(object):
 class TransformerSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!TransformerSeqTransducer'
 
-  def __init__(self, yaml_context, input_dim=512, layers=1, hidden_dim=512, 
+  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), input_dim=512, layers=1, hidden_dim=512, 
                head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
                ignore_masks=False, plot_attention=None,
-               nonlinearity=None, positional_encoding=False, positional_encoding_concat=0,
+               nonlinearity="rectify", positional_encoding=False, positional_encoding_concat=0,
                diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip"):
     register_handler(self)
-    param_col = yaml_context.dynet_param_collection.param_col
+    param_col = xnmt_global.dynet_param_collection.param_col
     self.input_dim = input_dim = input_dim + positional_encoding_concat
     self.hidden_dim = hidden_dim
-    self.dropout = dropout or yaml_context.dropout
-    nonlinearity = nonlinearity or yaml_context.nonlinearity
+    self.dropout = dropout or xnmt_global.dropout
     self.layers = layers
     self.modules = []
     self.positional_encoding = positional_encoding

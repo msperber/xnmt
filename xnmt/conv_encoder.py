@@ -5,7 +5,8 @@ from xnmt.expression_sequence import ExpressionSequence
 from xnmt.nn import WeightNoise
 from xnmt.events import register_handler, handle_xnmt_event
 from xnmt.transducer import Transducer, SeqTransducer
-from xnmt.serializer import Serializable
+from xnmt.serialize.serializable import Serializable
+from xnmt.serialize.tree_tools import Ref, Path
 
 
 class StridedConvSeqTransducer(SeqTransducer, Serializable):
@@ -14,9 +15,9 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
   """
   yaml_tag = u'!StridedConvSeqTransducer'
     
-  def __init__(self, yaml_context, init_gauss_var=0.1, weight_noise=0.0,
+  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), init_gauss_var=0.1, weight_noise=0.0,
                layers=1, input_dim=120, chn_dim=3, num_filters=32, stride=(2,2), 
-               batch_norm=False, nonlinearity=None, pre_activation=False,
+               batch_norm=False, nonlinearity="rectify", pre_activation=False,
                output_tensor=False, transpose=True):
     """
     :param param_col:
@@ -39,7 +40,7 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
     if input_dim % chn_dim != 0:
       raise ValueError("StridedConvEncoder requires input_dim mod chn_dim == 0, got: %s and %s" % (input_dim, chn_dim))
     
-    param_col = yaml_context.dynet_param_collection.param_col
+    param_col = xnmt_global.dynet_param_collection.param_col
     self.layers = layers
     self.chn_dim = chn_dim
     self.freq_dim = input_dim / chn_dim
@@ -48,7 +49,7 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
     self.filter_size_freq = 3
     self.stride = stride
     self.output_transposed_tensor = output_tensor
-    self.nonlinearity = nonlinearity or yaml_context.nonlinearity
+    self.nonlinearity = nonlinearity
     self.pre_activation = pre_activation
     
     self.use_bn = batch_norm
@@ -164,8 +165,8 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
   """
   yaml_tag = u'!PoolingConvSeqTransducer'
   
-  def __init__(self, yaml_context, input_dim, pooling=[None, (1,1)], chn_dim=3, num_filters=32, 
-               output_tensor=False, nonlinearity=None, init_gauss_var=0.1):
+  def __init__(self, input_dim, pooling=[None, (1,1)], chn_dim=3, num_filters=32, 
+               output_tensor=False, nonlinearity="rectify", init_gauss_var=0.1, xnmt_global=Ref(Path("xnmt_global"))):
     """
     :param layers: encoder depth
     :param input_dim: size of the inputs, before factoring out the channels.
@@ -179,7 +180,7 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
     raise Exception("TODO: buggy, needs proper transposing")
     assert input_dim % chn_dim == 0
     
-    model = yaml_context.dynet_param_collection.param_col
+    model = xnmt_global.dynet_param_collection.param_col
     self.layers = len(pooling)
     assert self.layers > 0
     self.chn_dim = chn_dim
@@ -189,7 +190,7 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
     self.filter_size_freq = 3
     self.pooling = pooling
     self.output_tensor = output_tensor
-    self.nonlinearity = nonlinearity or yaml_context.nonlinearity
+    self.nonlinearity = nonlinearity
     
     normalInit=dy.NormalInitializer(0, init_gauss_var)
     self.bn_layers = []

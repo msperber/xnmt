@@ -7,10 +7,10 @@ import dynet as dy
 from xnmt.expression_sequence import ExpressionSequence, ReversedExpressionSequence
 from xnmt.batch_norm import BatchNorm
 from xnmt.nn import NiNLayer
-from xnmt.serializer import Serializable
+from xnmt.serialize.serializable import Serializable
 from xnmt.events import register_handler, handle_xnmt_event
 from xnmt.transducer import SeqTransducer, FinalTransducerState
-
+from xnmt.serialize.tree_tools import Ref, Path
 
 class UniLSTMSeqTransducer(SeqTransducer, Serializable):
   """
@@ -20,14 +20,14 @@ class UniLSTMSeqTransducer(SeqTransducer, Serializable):
   """
   yaml_tag = u'!UniLSTMSeqTransducer'
   
-  def __init__(self, yaml_context, input_dim=None, hidden_dim=None, dropout = None, weightnoise_std=None, weight_norm = False):
+  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), input_dim=None, hidden_dim=None, dropout = None, weightnoise_std=None, weight_norm = False):
     register_handler(self)
-    model = yaml_context.dynet_param_collection.param_col
-    input_dim = input_dim or yaml_context.default_layer_dim
-    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    model = xnmt_global.dynet_param_collection.param_col
+    input_dim = input_dim or xnmt_global.default_layer_dim
+    hidden_dim = hidden_dim or xnmt_global.default_layer_dim
     self.hidden_dim = hidden_dim
-    self.dropout_rate = dropout or yaml_context.dropout
-    self.weightnoise_std = weightnoise_std or yaml_context.weight_noise
+    self.dropout_rate = dropout or xnmt_global.dropout
+    self.weightnoise_std = weightnoise_std or xnmt_global.weight_noise
     self.input_dim = input_dim
 
     # [i; f; o; g]
@@ -117,19 +117,19 @@ class BiLSTMSeqTransducer(SeqTransducer, Serializable):
   """
   yaml_tag = u'!BiLSTMSeqTransducer'
   
-  def __init__(self, yaml_context, layers=1, input_dim=None, hidden_dim=None, dropout=None, weightnoise_std=None):
+  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), layers=1, input_dim=None, hidden_dim=None, dropout=None, weightnoise_std=None):
     register_handler(self)
     self.num_layers = layers
-    input_dim = input_dim or yaml_context.default_layer_dim
-    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    input_dim = input_dim or xnmt_global.default_layer_dim
+    hidden_dim = hidden_dim or xnmt_global.default_layer_dim
     self.hidden_dim = hidden_dim
-    self.dropout_rate = dropout or yaml_context.dropout
-    self.weightnoise_std = weightnoise_std or yaml_context.weight_noise
+    self.dropout_rate = dropout or xnmt_global.dropout
+    self.weightnoise_std = weightnoise_std or xnmt_global.weight_noise
     assert hidden_dim % 2 == 0
-    self.forward_layers = [UniLSTMSeqTransducer(yaml_context, input_dim, hidden_dim/2, dropout, weightnoise_std)]
-    self.backward_layers = [UniLSTMSeqTransducer(yaml_context, input_dim, hidden_dim/2, dropout, weightnoise_std)]
-    self.forward_layers += [UniLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim/2, dropout, weightnoise_std) for _ in range(layers-1)]
-    self.backward_layers += [UniLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim/2, dropout, weightnoise_std) for _ in range(layers-1)]
+    self.forward_layers = [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std)]
+    self.backward_layers = [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std)]
+    self.forward_layers += [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std) for _ in range(layers-1)]
+    self.backward_layers += [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std) for _ in range(layers-1)]
 
   @handle_xnmt_event
   def on_start_sent(self, src):
@@ -164,11 +164,11 @@ class CustomLSTMSeqTransducer(SeqTransducer):
   It currently does not support dropout or multiple layers and is mostly meant as a
   starting point for LSTM extensions.
   """
-  def __init__(self, yaml_context, layers, input_dim, hidden_dim):
+  def __init__(self, layers, input_dim, hidden_dim, xnmt_global=Ref(Path("xnmt_global"))):
     if layers!=1: raise RuntimeError("CustomLSTMSeqTransducer supports only exactly one layer")
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
-    model = yaml_context.dynet_param_collection.param_col
+    model = xnmt_global.dynet_param_collection.param_col
 
     # [i; f; o; g]
     self.p_Wx = model.add_parameters(dim=(hidden_dim*4, input_dim))
@@ -203,17 +203,17 @@ class CustomLSTMSeqTransducer(SeqTransducer):
 
 class ResConvLSTMSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!ResConvLSTMSeqTransducer'
-  def __init__(self, yaml_context, input_dim, num_filters=32):
+  def __init__(self, input_dim, num_filters=32, xnmt_global=Ref(Path("xnmt_global"))):
     register_handler(self)
-    model = yaml_context.dynet_param_collection.param_col
+    model = xnmt_global.dynet_param_collection.param_col
     if input_dim%num_filters!=0: raise RuntimeError("input_dim must be divisible by num_filters")
     self.input_dim = input_dim
 
     self.num_filters = num_filters
     self.freq_dim = input_dim / num_filters
     
-    self.convLstm1 = ConvLSTMSeqTransducer(yaml_context, input_dim, num_filters, num_filters/2, input_transposed=False, reshape_output=False)
-    self.convLstm2 = ConvLSTMSeqTransducer(yaml_context, input_dim, num_filters, num_filters/2, input_transposed=True, reshape_output=False)
+    self.convLstm1 = ConvLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, chn_dim=num_filters, num_filters=num_filters/2, input_transposed=False, reshape_output=False)
+    self.convLstm2 = ConvLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, chn_dim=num_filters, num_filters=num_filters/2, input_transposed=True, reshape_output=False)
     self.bn1 = BatchNorm(model, num_filters, 3)
     self.bn2 = BatchNorm(model, num_filters, 3)
     self.train = True
@@ -235,7 +235,7 @@ class ConvLSTMSeqTransducer(SeqTransducer):
   """
   This is a ConvLSTM implementation using a single bidirectional layer.
   """
-  def __init__(self, yaml_context, input_dim, chn_dim=3, num_filters=32, input_transposed=False, reshape_output=True):
+  def __init__(self, input_dim, chn_dim=3, num_filters=32, input_transposed=False, reshape_output=True, xnmt_global=Ref(Path("xnmt_global"))):
     """
     :param input_dim: product of frequency and channel dimension
     :param model: DyNet parameter collection
@@ -247,7 +247,7 @@ class ConvLSTMSeqTransducer(SeqTransducer):
              True -> output is an ExpressionSequence of dimensions (hidden_dim, sent_len, batch)
              False -> output is a tensor DyNet expression of dimensions (sent_len, freq, chn, batch)
     """
-    model = yaml_context.dynet_param_collection.param_col
+    model = xnmt_global.dynet_param_collection.param_col
     if input_dim%chn_dim!=0:
       raise RuntimeError("input_dim must be divisible by chn_dim")
     self.input_dim = input_dim
@@ -349,13 +349,13 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
   and https://arxiv.org/pdf/1610.03022.pdf
   """
   yaml_tag = u'!NetworkInNetworkBiLSTMTransducer'
-  def __init__(self, yaml_context, 
-               layers, input_dim, hidden_dim,  
+  def __init__(self, layers, input_dim, hidden_dim,  
                nin_enabled=True, nin_depth=1, stride=1,
-               batch_norm=False, nonlinearity=None, pre_activation=False, 
-               weight_norm=False, weight_noise = None, dropout=None):
+               batch_norm=False, nonlinearity="rectify", pre_activation=False, 
+               weight_norm=False, weight_noise = None, dropout=None,
+               xnmt_global=Ref(Path("xnmt_global"))):
     """
-    :param yaml_context:
+    :param xnmt_global:
     :param layers: depth of the network
     :param input_dim: size of the inputs of bottom layer
     :param hidden_dim: size of the outputs (and intermediate layer representations)
@@ -377,17 +377,17 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
     self.stride=stride
     self.nin_depth = nin_depth
     self.nin_enabled = nin_enabled
-    self.nonlinearity = nonlinearity or yaml_context.nonlinearity
+    self.nonlinearity = nonlinearity
     self.pre_activation = pre_activation
-    f = UniLSTMSeqTransducer(yaml_context, input_dim, hidden_dim / 2, dropout=dropout, 
+    f = UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim / 2, dropout=dropout, 
                              weight_norm=weight_norm, weightnoise_std = weight_noise)
-    b = UniLSTMSeqTransducer(yaml_context, input_dim, hidden_dim / 2, dropout=dropout, 
+    b = UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim / 2, dropout=dropout, 
                              weight_norm=weight_norm, weightnoise_std = weight_noise)
     self.builder_layers.append((f, b))
     for _ in range(layers - 1):
-      f = UniLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim / 2, dropout=dropout, 
+      f = UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim / 2, dropout=dropout, 
                               weight_norm=weight_norm, weightnoise_std = weight_noise)
-      b = UniLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim / 2, dropout=dropout, 
+      b = UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim / 2, dropout=dropout, 
                               weight_norm=weight_norm, weightnoise_std = weight_noise)
       self.builder_layers.append((f, b))
     
@@ -396,28 +396,28 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
       assert self.stride == 1
       self.nin_layers.append([]) # no pre-activation
       for _ in range(layers):
-        self.nin_layers.append([NiNLayer(yaml_context, input_dim=hidden_dim/2, hidden_dim=hidden_dim,
+        self.nin_layers.append([NiNLayer(xnmt_global=xnmt_global, input_dim=hidden_dim/2, hidden_dim=hidden_dim,
                                          use_bn=False, nonlinearity="id", use_proj=False, 
                                          downsampling_factor=2)])
     else:
       if pre_activation:
         # first pre-activation
-        self.nin_layers.append([NiNLayer(yaml_context, input_dim=input_dim, hidden_dim=input_dim,
+        self.nin_layers.append([NiNLayer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=input_dim,
                                          use_proj=False, use_bn=batch_norm, nonlinearity=self.nonlinearity)])
         for _ in range(layers-1):
           nin_layer = []
           for nin_i in range(nin_depth):
-            nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
+            nin_layer.append(NiNLayer(xnmt_global=xnmt_global, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
                                       use_bn=batch_norm, nonlinearity=self.nonlinearity, 
                                       downsampling_factor=2*self.stride if nin_i==0 else 1))
           self.nin_layers.append(nin_layer)
         nin_layer = []
         for nin_i in range(nin_depth-1):
-          nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
+          nin_layer.append(NiNLayer(xnmt_global=xnmt_global, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
                                     use_bn=batch_norm, nonlinearity=self.nonlinearity, 
                                     downsampling_factor=2*self.stride if nin_i==0 else 1))
         # very last layer: counterpiece to the first pre-activation
-        nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_depth==1 else hidden_dim, hidden_dim=hidden_dim, 
+        nin_layer.append(NiNLayer(xnmt_global=xnmt_global, input_dim=hidden_dim/2 if nin_depth==1 else hidden_dim, hidden_dim=hidden_dim, 
                                   use_proj=True, use_bn=False, nonlinearity="id",
                                   downsampling_factor=2*self.stride if nin_depth==1 else 1))
         self.nin_layers.append(nin_layer)
@@ -426,7 +426,7 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
         for _ in range(layers):
           nin_layer = []
           for nin_i in range(nin_depth):
-            nin_layer.append(NiNLayer(yaml_context, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
+            nin_layer.append(NiNLayer(xnmt_global=xnmt_global, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
                                       use_bn=batch_norm, nonlinearity=self.nonlinearity, 
                                       downsampling_factor=2*self.stride if nin_i==0 else 1))
           self.nin_layers.append(nin_layer)
@@ -481,14 +481,14 @@ class QLSTMSeqTransducer(SeqTransducer, Serializable):
   """
   yaml_tag = u'!QLSTMSeqTransducer'
   
-  def __init__(self, yaml_context, input_dim=None, hidden_dim=None, dropout = None,
+  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), input_dim=None, hidden_dim=None, dropout = None,
                filter_width=2, stride=1):
     register_handler(self)
-    model = yaml_context.dynet_param_collection.param_col
-    input_dim = input_dim or yaml_context.default_layer_dim
-    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    model = xnmt_global.dynet_param_collection.param_col
+    input_dim = input_dim or xnmt_global.default_layer_dim
+    hidden_dim = hidden_dim or xnmt_global.default_layer_dim
     self.hidden_dim = hidden_dim
-    self.dropout = dropout or yaml_context.dropout
+    self.dropout = dropout or xnmt_global.dropout
     self.input_dim = input_dim
     self.stride = stride
 
@@ -571,18 +571,18 @@ class QLSTMSeqTransducer(SeqTransducer, Serializable):
 class BiQLSTMSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!BiQLSTMSeqTransducer'
   
-  def __init__(self, yaml_context, layers, input_dim=None, hidden_dim=None, dropout=None, stride=1, filter_width=2):
+  def __init__(self, layers, input_dim=None, hidden_dim=None, dropout=None, stride=1, filter_width=2, xnmt_global=Ref(Path("xnmt_global"))):
     register_handler(self)
     self.num_layers = layers
-    input_dim = input_dim or yaml_context.default_layer_dim
-    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    input_dim = input_dim or xnmt_global.default_layer_dim
+    hidden_dim = hidden_dim or xnmt_global.default_layer_dim
     self.hidden_dim = hidden_dim
-    dropout = dropout or yaml_context.dropout
+    dropout = dropout or xnmt_global.dropout
     assert hidden_dim % 2 == 0
-    self.forward_layers = [QLSTMSeqTransducer(yaml_context, input_dim, hidden_dim/2, dropout, stride=stride, filter_width=filter_width)]
-    self.backward_layers = [QLSTMSeqTransducer(yaml_context, input_dim, hidden_dim/2, dropout, stride=stride, filter_width=filter_width)]
-    self.forward_layers += [QLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim/2, dropout, stride=stride, filter_width=filter_width) for _ in range(layers-1)]
-    self.backward_layers += [QLSTMSeqTransducer(yaml_context, hidden_dim, hidden_dim/2, dropout, stride=stride, filter_width=filter_width) for _ in range(layers-1)]
+    self.forward_layers = [QLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width)]
+    self.backward_layers = [QLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width)]
+    self.forward_layers += [QLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width) for _ in range(layers-1)]
+    self.backward_layers += [QLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width) for _ in range(layers-1)]
 
   @handle_xnmt_event
   def on_start_sent(self, src):
