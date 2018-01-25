@@ -86,7 +86,10 @@ class MultiHeadedAttention(object):
   def shape_projection(self, x, batch_size):
     total_words = x.dim()[1]
     seq_len = total_words / batch_size
-    return dy.reshape_transpose_reshape(x, (self.model_dim, seq_len), (seq_len, self.dim_per_head), pre_batch_size=batch_size, post_batch_size=batch_size * self.head_count)
+    out = dy.reshape(x, (self.model_dim, seq_len), batch_size=batch_size)
+    out = dy.transpose(out)
+    return dy.reshape(out, (seq_len, self.dim_per_head), batch_size=batch_size * self.head_count)
+#     return dy.reshape_transpose_reshape(x, (self.model_dim, seq_len), (seq_len, self.dim_per_head), pre_batch_size=batch_size, post_batch_size=batch_size * self.head_count)
 
   def __call__(self, key, value, query, att_mask, batch_mask, p):
     """
@@ -197,7 +200,10 @@ class MultiHeadedAttention(object):
     
 
     # Reshaping the attn_prod to input query dimensions
-    out = dy.reshape_transpose_reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), (self.model_dim,), pre_batch_size=batch_size, post_batch_size=batch_size*sent_len_out)
+    out = dy.reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), batch_size=batch_size)
+    out = dy.transpose(out)
+    out = dy.reshape(out, (self.model_dim,), batch_size=batch_size*sent_len_out)
+#     out = dy.reshape_transpose_reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), (self.model_dim,), pre_batch_size=batch_size, post_batch_size=batch_size*sent_len_out)
 
     if self.plot_attention:
       assert batch_size==1

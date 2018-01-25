@@ -114,7 +114,8 @@ class MlpSoftmaxDecoder(RnnDecoder, Serializable):
     rnn_state = self.fwd_lstm.initial_state()
     rnn_state = rnn_state.set_s(self.bridge.decoder_init(enc_final_states))
     zeros = dy.zeros(self.input_dim) if self.input_feeding else None
-    rnn_state = rnn_state.add_input(dy.concatenate([ss_expr, zeros]))
+    c = dy.concatenate([ss_expr, zeros])
+    rnn_state = rnn_state.add_input(c)
     return MlpSoftmaxDecoderState(rnn_state=rnn_state, context=zeros)
 
   def add_input(self, mlp_dec_state, trg_embedding):

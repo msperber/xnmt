@@ -1,6 +1,7 @@
 # all Serializable objects must be imported here in order to be parsable
 # using the !Classname YAML syntax
 import xnmt.attender
+import xnmt.audio_transformer
 import xnmt.batcher
 import xnmt.conv
 import xnmt.decoder
