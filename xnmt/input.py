@@ -227,11 +227,17 @@ class ContVecReader(InputReader, Serializable):
   be in either order, depending on the value of the "transpose" variable:
   * sents[sent_id][feat_ind,word_ind] if transpose=False
   * sents[sent_id][word_ind,feat_ind] if transpose=True
+  
+  The data returned by this reader will then be in [feat_ind, word_ind] order.
   """
   yaml_tag = u"!ContVecReader"
 
-  def __init__(self, transpose=False):
+  def __init__(self, transpose=False, feat_from=None, feat_to=None, feat_skip=None, word_skip=None):
     self.transpose = transpose
+    self.feat_from = feat_from
+    self.feat_to = feat_to
+    self.feat_skip = feat_skip
+    self.word_skip = word_skip
 
   def read_sents(self, filename, filter_ids=None):
     npzFile = np.load(filename, mmap_mode=None if filter_ids is None else "r")
@@ -240,8 +246,17 @@ class ContVecReader(InputReader, Serializable):
       npzKeys = [npzKeys[i] for i in filter_ids]
     for idx, key in enumerate(npzKeys):
       inp = npzFile[key]
+      
       if self.transpose:
         inp = inp.transpose()
+
+      sub_inp = inp[self.feat_from : self.feat_to : self.feat_skip, ::self.word_skip]
+      if sub_inp.size < inp.size:
+        inp = np.empty_like (sub_inp)
+        np.copyto(inp, sub_inp)
+      else:
+        inp = sub_inp
+        
       if idx % 1000 == 999:
         print("Read {} lines ({:.2f}%) of {} at {}".format(idx+1, float(idx+1)/len(npzKeys)*100, filename, key))
       yield ArrayInput(inp)
