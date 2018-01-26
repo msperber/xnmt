@@ -272,7 +272,7 @@ class ConvLSTMSeqTransducer(SeqTransducer):
                                     self.num_filters, self.num_filters * 4),
                                init=normalInit)
       self.params["b_" + direction] = \
-          model.add_parameters(dim=(self.num_filters * 4,), init=normalInit)
+          model.add_parameters(dim=(self.num_filters * 4,), init=dy.ConstInitializer(0.0))
 
   def __call__(self, es, mask=None):
     if self.input_transposed:
@@ -493,7 +493,7 @@ class QLSTMSeqTransducer(SeqTransducer, Serializable):
     self.stride = stride
 
     self.p_f = model.add_parameters(dim=(filter_width, 1, input_dim, hidden_dim * 3)) # f, o, z
-    self.p_b = model.add_parameters(dim=(hidden_dim * 3,))
+    self.p_b = model.add_parameters(dim=(hidden_dim * 3,), init=dy.ConstInitializer(0.0))
 
   @handle_xnmt_event
   def on_set_train(self, val):
