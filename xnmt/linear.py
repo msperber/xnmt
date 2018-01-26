@@ -6,7 +6,7 @@ class Linear(object):
   def __init__(self, input_dim, output_dim, model, bias=True, init=None):
     self.bias = bias
     self.output_dim = output_dim
-    init_w, init_b = None, None
+    init_w, init_b = None, dy.ConstInitializer(0.0)
 
     if init == 'LeCunUniform':
       init_w = LeCunUniform(input_dim)
