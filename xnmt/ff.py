@@ -19,7 +19,7 @@ class FullyConnectedSeqTransducer(SeqTransducer, Serializable):
 
     normalInit=dy.NormalInitializer(0, 0.1)
     self.pW = model.add_parameters(dim = (self.out_height, self.in_height), init=normalInit)
-    self.pb = model.add_parameters(dim = self.out_height)
+    self.pb = model.add_parameters(dim = self.out_height, init=dy.ConstInitializer(0.0))
 
   def get_final_states(self):
     return self._final_states
