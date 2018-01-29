@@ -5,7 +5,8 @@ import dynet as dy
 
 from xnmt.transducer import Transducer, FinalTransducerState
 from xnmt.input import Input, BaseTextReader
-from xnmt.serializer import Serializable
+from xnmt.serialize.serializable import Serializable
+from xnmt.serialize.tree_tools import Ref, Path
 from xnmt.vocab import Vocab
 from xnmt.embedder import SimpleWordEmbedder
 from xnmt.events import register_handler, handle_xnmt_event
@@ -183,18 +184,21 @@ class LatticeEmbedder(SimpleWordEmbedder, Serializable):
 
   yaml_tag = u'!LatticeEmbedder'
 
-  def __init__(self, yaml_context, vocab_size, emb_dim = None, word_dropout = 0.0,
-               arc_dropout = 0.0):
+  def __init__(self, vocab = None, vocab_size = None, emb_dim = None, word_dropout = 0.0,
+               arc_dropout = 0.0, xnmt_global=Ref(Path("xnmt_global")),
+               yaml_path = None,
+               src_reader = Ref(path=Path("model.src_reader"), required=False),
+               trg_reader = Ref(path=Path("model.trg_reader"), required=False)):
     """
     :param vocab_size:
     :param emb_dim:
     :param word_dropout: drop out word types with a certain probability, sampling word types on a per-sentence level, see https://arxiv.org/abs/1512.05287
     """
     register_handler(self)
-    self.vocab_size = vocab_size
-    self.emb_dim = emb_dim or yaml_context.default_layer_dim
+    self.vocab_size = self.choose_vocab_size(vocab_size, vocab, yaml_path, src_reader, trg_reader)
+    self.emb_dim = emb_dim or xnmt_global.default_layer_dim
     self.word_dropout = word_dropout
-    self.embeddings = yaml_context.dynet_param_collection.param_col.add_lookup_parameters((self.vocab_size, self.emb_dim))
+    self.embeddings = xnmt_global.dynet_param_collection.param_col.add_lookup_parameters((self.vocab_size, self.emb_dim))
     self.word_id_mask = None
     self.weight_noise = 0.0
     self.fix_norm = None
@@ -216,12 +220,12 @@ class LatticeEmbedder(SimpleWordEmbedder, Serializable):
 
 
 class LatticeLSTMTransducer(Transducer):
-  def __init__(self, yaml_context, input_dim, hidden_dim, dropout = 0.0):
+  def __init__(self, input_dim, hidden_dim, dropout = 0.0, xnmt_global=Ref(Path("xnmt_global"))):
     register_handler(self)
-    self.dropout_rate = dropout or yaml_context.dropout
+    self.dropout_rate = dropout or xnmt_global.dropout
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
-    model = yaml_context.dynet_param_collection.param_col
+    model = xnmt_global.dynet_param_collection.param_col
 
     # [i; o; g]
     self.p_Wx_iog = model.add_parameters(dim=(hidden_dim*3, input_dim))
@@ -304,18 +308,18 @@ class LatticeLSTMTransducer(Transducer):
 class BiLatticeLSTMTransducer(Transducer, Serializable):
   yaml_tag = u'!BiLatticeLSTMTransducer'
   
-  def __init__(self, yaml_context, layers=1, input_dim=None, hidden_dim=None, dropout=None):
+  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), layers=1, input_dim=None, hidden_dim=None, dropout=None):
     register_handler(self)
     self.num_layers = layers
-    input_dim = input_dim or yaml_context.default_layer_dim
-    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+    input_dim = input_dim or xnmt_global.default_layer_dim
+    hidden_dim = hidden_dim or xnmt_global.default_layer_dim
     self.hidden_dim = hidden_dim
-    self.dropout_rate = dropout or yaml_context.dropout
+    self.dropout_rate = dropout or xnmt_global.dropout
     assert hidden_dim % 2 == 0
-    self.forward_layers = [LatticeLSTMTransducer(yaml_context, input_dim, hidden_dim/2, dropout)]
-    self.backward_layers = [LatticeLSTMTransducer(yaml_context, input_dim, hidden_dim/2, dropout)]
-    self.forward_layers += [LatticeLSTMTransducer(yaml_context, hidden_dim, hidden_dim/2, dropout) for _ in range(layers-1)]
-    self.backward_layers += [LatticeLSTMTransducer(yaml_context, hidden_dim, hidden_dim/2, dropout) for _ in range(layers-1)]
+    self.forward_layers = [LatticeLSTMTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout)]
+    self.backward_layers = [LatticeLSTMTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout)]
+    self.forward_layers += [LatticeLSTMTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout) for _ in range(layers-1)]
+    self.backward_layers += [LatticeLSTMTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout) for _ in range(layers-1)]
 
   @handle_xnmt_event
   def on_start_sent(self, src):

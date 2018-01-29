@@ -1,6 +1,7 @@
 import math
 import dynet as dy
-from xnmt.serializer import Serializable
+from xnmt.serialize.serializable import Serializable
+from xnmt.serialize.tree_tools import Ref, Path
 
 class Attender(object):
   '''
@@ -22,18 +23,18 @@ class Attender(object):
 class MultiHeadMlpAttender(Attender, Serializable):
   yaml_tag = u'!MultiHeadMlpAttender'
   
-  def __init__(self, yaml_context, input_dim=None, state_dim=None, hidden_dim=None, num_heads=8):
+  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), input_dim=None, state_dim=None, hidden_dim=None, num_heads=8):
     """
-    :param yaml_context:
+    :param xnmt_lgobal:
     :param input_dim:
     :param state_dim:
     :param hidden_dim:
     :param num_heads: decoder input dim must equal num_heads x input_dim
     """
-    input_dim = input_dim or yaml_context.default_layer_dim
-    state_dim = state_dim or yaml_context.default_layer_dim
-    hidden_dim = hidden_dim or yaml_context.default_layer_dim
-    self.attenders = [MlpAttender(yaml_context, input_dim, state_dim, hidden_dim) for _ in range(num_heads)]
+    input_dim = input_dim or xnmt_global.default_layer_dim
+    state_dim = state_dim or xnmt_global.default_layer_dim
+    hidden_dim = hidden_dim or xnmt_global.default_layer_dim
+    self.attenders = [MlpAttender(xnmt_global=xnmt_global, input_dim=input_dim, state_dim=state_dim, hidden_dim=hidden_dim) for _ in range(num_heads)]
     self.curr_sent = None
     
   def init_sent(self, sent):
@@ -60,14 +61,14 @@ class MlpAttender(Attender, Serializable):
 
   yaml_tag = u'!MlpAttender'
 
-  def __init__(self, yaml_context, input_dim=None, state_dim=None, hidden_dim=None):
-    input_dim = input_dim or yaml_context.default_layer_dim
-    state_dim = state_dim or yaml_context.default_layer_dim
-    hidden_dim = hidden_dim or yaml_context.default_layer_dim
+  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), input_dim=None, state_dim=None, hidden_dim=None):
+    input_dim = input_dim or xnmt_global.default_layer_dim
+    state_dim = state_dim or xnmt_global.default_layer_dim
+    hidden_dim = hidden_dim or xnmt_global.default_layer_dim
     self.input_dim = input_dim
     self.state_dim = state_dim
     self.hidden_dim = hidden_dim
-    param_collection = yaml_context.dynet_param_collection.param_col
+    param_collection = xnmt_global.dynet_param_collection.param_col
     self.pW = param_collection.add_parameters((hidden_dim, input_dim))
     self.pV = param_collection.add_parameters((hidden_dim, state_dim))
     self.pb = param_collection.add_parameters(hidden_dim)
@@ -115,7 +116,7 @@ class DotAttender(Attender, Serializable):
 
   yaml_tag = u'!DotAttender'
 
-  def __init__(self, yaml_context, scale=True):
+  def __init__(self, scale=True):
     self.curr_sent = None
     self.attention_vecs = None
     self.scale = scale
@@ -139,3 +140,37 @@ class DotAttender(Attender, Serializable):
     attention = self.calc_attention(state)
     I = self.curr_sent.as_tensor()
     return I * attention
+
+class BilinearAttender(Attender, Serializable):
+  '''
+  Implements a bilinear attention, equivalent to the 'general' linear
+  attention of https://arxiv.org/abs/1508.04025
+  '''
+
+  yaml_tag = u'!BilinearAttender'
+
+  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), input_dim=None, state_dim=None):
+    input_dim = input_dim or xnmt_global.default_layer_dim
+    state_dim = state_dim or xnmt_global.default_layer_dim
+    self.input_dim = input_dim
+    self.state_dim = state_dim
+    param_collection = xnmt_global.dynet_param_collection.param_col
+    self.pWa = param_collection.add_parameters((input_dim, state_dim))
+    self.curr_sent = None
+
+  def init_sent(self, sent):
+    self.curr_sent = sent
+    self.attention_vecs = []
+    self.I = self.curr_sent.as_tensor()
+
+  def calc_attention(self, state):
+    Wa = dy.parameter(self.pWa)
+    scores = (dy.transpose(state) * Wa) * self.I
+    normalized = dy.softmax(scores)
+    self.attention_vecs.append(normalized)
+    return dy.transpose(normalized)
+
+  def calc_context(self, state):
+    attention = self.calc_attention(state)
+    return self.I * attention
+

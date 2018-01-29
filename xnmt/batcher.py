@@ -6,7 +6,7 @@ import random
 import numpy as np
 import dynet as dy
 from xnmt.vocab import Vocab
-from xnmt.serializer import Serializable
+from xnmt.serialize.serializable import Serializable
 
 class Batch(list):
   """
@@ -26,6 +26,12 @@ class Mask(object):
     assert len(np_arr.shape)==2
     self.np_arr = np_arr
   
+  def __len__(self):
+    return self.np_arr.shape[1]
+ 
+  def batch_size(self):
+    return self.np_arr.shape[0]
+
   def __len__(self):
     return self.np_arr.shape[1]
  
@@ -55,6 +61,7 @@ class Mask(object):
         mask_expr = dy.inputTensor(np.reshape(self.np_arr.transpose(), reshape_size) * multiplicator, batched=True)
       else:
         mask_expr = dy.inputTensor(np.reshape(self.np_arr.transpose(), reshape_size), batched=True)
+        # merge conflict, not sure which one is correct/better: mask_expr = dy.inputTensor(np.expand_dims(self.np_arr.transpose(), axis=1), batched=True)
       ret = tensor_expr + mask_expr
       assert dim_before == ret.dim()
       return ret
