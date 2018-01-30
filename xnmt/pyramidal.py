@@ -111,7 +111,8 @@ class PyramidalLSTMSeqTransducer(SeqTransducer, Serializable):
           raise RuntimeError("unknown downsampling_method %s" % self.downsampling_method)
       else:
         # concat final outputs
-        ret_es = ExpressionSequence(expr_list=[dy.concatenate([f, b]) for f, b in zip(fs, ReversedExpressionSequence(bs))], mask=mask_out)
+        self.last_output = [dy.concatenate([f, b]) for f, b in zip(fs, ReversedExpressionSequence(bs))]
+        ret_es = ExpressionSequence(expr_list=self.last_output, mask=mask_out)
 
     self._final_states = [FinalTransducerState(dy.concatenate([fb.get_final_states()[0].main_expr(),
                                                             bb.get_final_states()[0].main_expr()]),
@@ -120,3 +121,7 @@ class PyramidalLSTMSeqTransducer(SeqTransducer, Serializable):
                           for (fb, bb) in self.builder_layers]
 
     return ret_es
+
+  @handle_xnmt_event
+  def on_collect_recent_outputs(self):
+    return [(self, self.last_output)]

@@ -17,7 +17,7 @@ class UniLSTMSeqTransducer(SeqTransducer, Serializable):
   """
   yaml_tag = u'!UniLSTMSeqTransducer'
   
-  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), input_dim=None, hidden_dim=None, dropout = None, weightnoise_std=None):
+  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), input_dim=None, hidden_dim=None, dropout = None, weightnoise_std=None, glorot_gain=1.0):
     register_handler(self)
     model = xnmt_global.dynet_param_collection.param_col
     input_dim = input_dim or xnmt_global.default_layer_dim
@@ -28,8 +28,8 @@ class UniLSTMSeqTransducer(SeqTransducer, Serializable):
     self.input_dim = input_dim
 
     # [i; f; o; g]
-    self.p_Wx = model.add_parameters(dim=(hidden_dim*4, input_dim))
-    self.p_Wh = model.add_parameters(dim=(hidden_dim*4, hidden_dim))
+    self.p_Wx = model.add_parameters(dim=(hidden_dim*4, input_dim), init=dy.GlorotInitializer(gain=glorot_gain))
+    self.p_Wh = model.add_parameters(dim=(hidden_dim*4, hidden_dim), init=dy.GlorotInitializer(gain=glorot_gain))
     self.p_b  = model.add_parameters(dim=(hidden_dim*4,), init=dy.ConstInitializer(0.0))
 
     self.dropout_mask_x = None
@@ -104,7 +104,7 @@ class BiLSTMSeqTransducer(SeqTransducer, Serializable):
   """
   yaml_tag = u'!BiLSTMSeqTransducer'
   
-  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), layers=1, input_dim=None, hidden_dim=None, dropout=None, weightnoise_std=None):
+  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), layers=1, input_dim=None, hidden_dim=None, dropout=None, weightnoise_std=None, glorot_gain=1.0):
     register_handler(self)
     self.num_layers = layers
     input_dim = input_dim or xnmt_global.default_layer_dim
@@ -113,10 +113,10 @@ class BiLSTMSeqTransducer(SeqTransducer, Serializable):
     self.dropout_rate = dropout or xnmt_global.dropout
     self.weightnoise_std = weightnoise_std or xnmt_global.weight_noise
     assert hidden_dim % 2 == 0
-    self.forward_layers = [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std)]
-    self.backward_layers = [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std)]
-    self.forward_layers += [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std) for _ in range(layers-1)]
-    self.backward_layers += [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std) for _ in range(layers-1)]
+    self.forward_layers = [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std, glorot_gain=glorot_gain)]
+    self.backward_layers = [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std, glorot_gain=glorot_gain)]
+    self.forward_layers += [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std, glorot_gain=glorot_gain) for _ in range(layers-1)]
+    self.backward_layers += [UniLSTMSeqTransducer(xnmt_global=xnmt_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, weightnoise_std=weightnoise_std, glorot_gain=glorot_gain) for _ in range(layers-1)]
 
   @handle_xnmt_event
   def on_start_sent(self, src):
@@ -141,7 +141,12 @@ class BiLSTMSeqTransducer(SeqTransducer, Serializable):
                                             dy.concatenate([self.forward_layers[layer_i].get_final_states()[0].cell_expr(),
                                                             self.backward_layers[layer_i].get_final_states()[0].cell_expr()])) \
                           for layer_i in range(len(self.forward_layers))]
-    return ExpressionSequence(expr_list=[dy.concatenate([forward_es[i],rev_backward_es[-i-1]]) for i in range(len(forward_es))], mask=mask)
+    self.last_output = [dy.concatenate([forward_es[i],rev_backward_es[-i-1]]) for i in range(len(forward_es))]
+    return ExpressionSequence(expr_list=self.last_output, mask=mask)
+  
+  @handle_xnmt_event
+  def on_collect_recent_outputs(self):
+    return [(self, self.last_output)]
 
 
 class CustomLSTMSeqTransducer(SeqTransducer):

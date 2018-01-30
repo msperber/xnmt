@@ -8,6 +8,7 @@ from xnmt.serialize.serializable import Serializable
 from xnmt.serialize.tree_tools import Ref, Path
 import xnmt.optimizer
 from xnmt.training_task import SimpleTrainingTask
+from xnmt.events import register_xnmt_event_sum
 
 class TrainingRegimen(object):
   """
@@ -109,6 +110,67 @@ class SimpleTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable):
           save_fct()
         if update_weights: self.model.set_train(True)
       if self.should_stop_training(): break
+
+
+class DebugInitTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable):
+  yaml_tag = '!DebugInitTrainingRegimen'
+  def __init__(self, model=Ref(path=Path("model")), src_file=None, trg_file=None,
+               dev_every=0, batcher=xnmt.batcher.SrcBatcher(32),
+               loss_calculator=None, trainer=None, run_for_epochs=None,
+               lr_decay=1.0, lr_decay_times=3, patience=1, initial_patience=None,
+               dev_tasks=None, restart_trainer=False, reload_command=None,
+               name=None, sample_train_sents=None, max_num_train_sents=None,
+               max_src_len=None, max_trg_len=None,
+               xnmt_global=Ref(Path("xnmt_global"))):
+    super().__init__(model=model,
+                     src_file=src_file,
+                     trg_file=trg_file,
+                     dev_every=dev_every,
+                     batcher=batcher,
+                     loss_calculator=loss_calculator, 
+                     run_for_epochs=1,
+                     lr_decay=lr_decay,
+                     lr_decay_times=lr_decay_times,
+                     patience=patience,
+                     initial_patience=initial_patience,
+                     dev_tasks=None,
+                     restart_trainer=restart_trainer,
+                     reload_command=reload_command,
+                     name=name,
+                     sample_train_sents=sample_train_sents,
+                     max_num_train_sents=1,
+                     max_src_len=max_src_len,
+                     max_trg_len=max_trg_len,
+                     xnmt_global=xnmt_global)
+    self.trainer = trainer or xnmt.optimizer.SimpleSGDTrainer(xnmt_global=self.xnmt_global, e0=0.1)
+    self.dynet_profiling = getattr(xnmt_global.commandline_args, "dynet_profiling", 0)
+
+  def run_training(self, save_fct, update_weights=True):
+    """
+    Main training loop (overwrites TrainingRegimen.run_training())
+    """
+    self.load_data()
+    self.model.set_train(update_weights)
+    src,trg = next(self.next_minibatch())
+    dy.renew_cg(immediate_compute=settings.IMMEDIATE_COMPUTE, check_validity=settings.CHECK_VALIDITY)
+    loss = self.training_step(src, trg)
+    if update_weights: self.update_weights(loss, self.trainer, self.dynet_profiling)
+    outputs = self.collect_recent_outputs()
+    # TODO: sort outputs by expression ID
+    self.print_fwd_stats(outputs)
+
+  @register_xnmt_event_sum
+  def collect_recent_outputs(self):
+    pass
+  
+  def print_fwd_stats(self, outputs):
+    for component, expr in outputs:
+      activations = np.average([x.npvalue() for x in expr], axis=(0,2))
+      max_act = np.max(activations)
+      min_act = np.min(activations)
+      std_act = np.std(activations)
+      print(f"{component}: max {max_act} / min {min_act} / std {std_act}")
+
 
 class MultiTaskTrainingRegimen(TrainingRegimen):
   """
