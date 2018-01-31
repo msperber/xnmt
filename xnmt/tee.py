@@ -37,7 +37,10 @@ class Tee(object):
 
   def write(self, data):
     self.file.write(six.u(data))
-    self.stdstream.write(" " * self.indent + data)
+    try:
+      self.stdstream.write(" " * self.indent + data)
+    except UnicodeEncodeError:
+      self.stdstream.write(" " * self.indent + "I can't write this unicode")
     self.flush()
 
   def flush(self):
