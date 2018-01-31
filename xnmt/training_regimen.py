@@ -156,7 +156,6 @@ class DebugInitTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable
     loss = self.training_step(src, trg)
     if update_weights: self.update_weights(loss, self.trainer, self.dynet_profiling)
     outputs = self.collect_recent_outputs()
-    # TODO: sort outputs by expression ID
     self.print_fwd_stats(outputs)
 
   @register_xnmt_event_sum
@@ -184,7 +183,8 @@ class DebugInitTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable
       mean_grad = np.average(gradients)
       std_grad = np.std(gradients)
       print("{:<70} | {:<10.3} {:<10.3} | {:<10.3} {:<10.3}".format(str(component), mean_act, std_act, mean_grad, std_grad))
-
+    print("consider adjusting the param initialization scale if values are too small or large; see \"Deep Learning\" by Goodfellow, Bengio, Courville, section 8.4")
+    exit()
 
 class MultiTaskTrainingRegimen(TrainingRegimen):
   """
