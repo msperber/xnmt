@@ -185,7 +185,12 @@ class SimpleWordEmbedder(Embedder, Serializable):
   @handle_xnmt_event
   def on_start_sent(self, src):
     self.word_id_mask = None
-
+    self.last_output = []
+    
+  @handle_xnmt_event
+  def on_collect_recent_outputs(self):
+    return [(self, self.last_output)]
+  
   def embed(self, x):
     if self.train and self.word_dropout > 0.0 and self.word_id_mask is None:
       batch_size = len(x) if xnmt.batcher.is_batched(x) else 1
@@ -212,6 +217,7 @@ class SimpleWordEmbedder(Embedder, Serializable):
         ret = dy.cmult(ret, dropout_mask)
     if self.train and self.weight_noise > 0.0:
       ret = dy.noise(ret, self.weight_noise)
+    self.last_output.append(ret)
     return ret
 
 class NoopEmbedder(Embedder, Serializable):

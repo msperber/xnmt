@@ -121,6 +121,11 @@ class BiLSTMSeqTransducer(SeqTransducer, Serializable):
   @handle_xnmt_event
   def on_start_sent(self, src):
     self._final_states = None
+    self.last_output = []
+    
+  @handle_xnmt_event
+  def on_collect_recent_outputs(self):
+    return [(self, o) for o in self.last_output]
 
   def get_final_states(self):
     return self._final_states
@@ -130,23 +135,21 @@ class BiLSTMSeqTransducer(SeqTransducer, Serializable):
     # first layer
     forward_es = self.forward_layers[0](es)
     rev_backward_es = self.backward_layers[0](ReversedExpressionSequence(es))
+    self.last_output.append(forward_es.as_list() + rev_backward_es.as_list())
 
     for layer_i in range(1, len(self.forward_layers)):
       new_forward_es = self.forward_layers[layer_i]([forward_es, ReversedExpressionSequence(rev_backward_es)])
       rev_backward_es = ExpressionSequence(self.backward_layers[layer_i]([ReversedExpressionSequence(forward_es), rev_backward_es]).as_list(), mask=mask)
       forward_es = new_forward_es
+      self.last_output.append(forward_es.as_list() + rev_backward_es.as_list())
 
     self._final_states = [FinalTransducerState(dy.concatenate([self.forward_layers[layer_i].get_final_states()[0].main_expr(),
                                                             self.backward_layers[layer_i].get_final_states()[0].main_expr()]),
                                             dy.concatenate([self.forward_layers[layer_i].get_final_states()[0].cell_expr(),
                                                             self.backward_layers[layer_i].get_final_states()[0].cell_expr()])) \
                           for layer_i in range(len(self.forward_layers))]
-    self.last_output = [dy.concatenate([forward_es[i],rev_backward_es[-i-1]]) for i in range(len(forward_es))]
     return ExpressionSequence(expr_list=self.last_output, mask=mask)
   
-  @handle_xnmt_event
-  def on_collect_recent_outputs(self):
-    return [(self, self.last_output)]
 
 
 class CustomLSTMSeqTransducer(SeqTransducer):

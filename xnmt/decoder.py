@@ -127,8 +127,9 @@ class MlpSoftmaxDecoder(RnnDecoder, Serializable):
     inp = trg_embedding
     if self.input_feeding:
       inp = dy.concatenate([inp, mlp_dec_state.context])
-    return MlpSoftmaxDecoderState(rnn_state=mlp_dec_state.rnn_state.add_input(inp),
-                                  context=mlp_dec_state.context)
+    rnn_state = mlp_dec_state.rnn_state.add_input(inp)
+    self.last_output.append(rnn_state)
+    return MlpSoftmaxDecoderState(rnn_state=rnn_state, context=mlp_dec_state.context)
 
   def get_scores(self, mlp_dec_state):
     """Get scores given a current state.
@@ -169,6 +170,12 @@ class MlpSoftmaxDecoder(RnnDecoder, Serializable):
   @handle_xnmt_event
   def on_set_train(self, val):
     self.fwd_lstm.set_dropout(self.dropout if val else 0.0)
+    self.last_output = []
+
+  @handle_xnmt_event
+  def on_collect_recent_outputs(self):
+    return [(self, self.last_output)]
+    
 
 class Bridge(object):
   """

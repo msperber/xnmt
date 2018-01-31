@@ -164,12 +164,26 @@ class DebugInitTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable
     pass
   
   def print_fwd_stats(self, outputs):
+    print("{:<70} | {:<21} | {:<21}".format("Component", "Activations", "Gradients"))
+    print("{:<70} | {:<10} {:<10} | {:<10} {:<10}".format("", "mean", "std", "mean", "std"))
+    print("-" * 125)
     for component, expr in outputs:
-      activations = np.average([x.npvalue() for x in expr], axis=(0,2))
-      max_act = np.max(activations)
-      min_act = np.min(activations)
+      if isinstance(expr, list) and isinstance(expr[0], dy.Expression):
+        activations = np.asarray([x.npvalue() for x in expr])
+        gradients = np.asarray([x.gradient() for x in expr])
+      elif isinstance(expr, dy.Expression):
+        activations = expr.npvalue()
+        gradients = expr.gradient()
+      elif isinstance(expr, list) and isinstance(expr[0], dy.RNNState):
+        activations = np.asarray([e.h()[0].value() for e in expr] + [e.s()[0].value() for e in expr])
+        gradients = np.asarray([e.h()[0].gradient() for e in expr] + [e.s()[0].gradient() for e in expr])
+      else:
+        raise ValueError(f"unknown output type received: {expr}")
+      mean_act = np.average(activations)
       std_act = np.std(activations)
-      print(f"{component}: max {max_act} / min {min_act} / std {std_act}")
+      mean_grad = np.average(gradients)
+      std_grad = np.std(gradients)
+      print("{:<70} | {:<10.3} {:<10.3} | {:<10.3} {:<10.3}".format(str(component), mean_act, std_act, mean_grad, std_grad))
 
 
 class MultiTaskTrainingRegimen(TrainingRegimen):

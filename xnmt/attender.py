@@ -1,5 +1,8 @@
 import math
+
 import dynet as dy
+
+from xnmt.events import register_handler, handle_xnmt_event
 from xnmt.serialize.serializable import Serializable
 from xnmt.serialize.tree_tools import Ref, Path
 
@@ -28,6 +31,7 @@ class MlpAttender(Attender, Serializable):
   yaml_tag = u'!MlpAttender'
 
   def __init__(self, xnmt_global=Ref(Path("xnmt_global")), input_dim=None, state_dim=None, hidden_dim=None):
+    register_handler(self)
     input_dim = input_dim or xnmt_global.default_layer_dim
     state_dim = state_dim or xnmt_global.default_layer_dim
     hidden_dim = hidden_dim or xnmt_global.default_layer_dim
@@ -70,7 +74,17 @@ class MlpAttender(Attender, Serializable):
   def calc_context(self, state):
     attention = self.calc_attention(state)
     I = self.curr_sent.as_tensor()
-    return I * attention
+    output = I * attention
+    self.last_output.append(output)
+    return output
+
+  @handle_xnmt_event
+  def on_start_sent(self, src):
+    self.last_output = []
+
+  @handle_xnmt_event
+  def on_collect_recent_outputs(self):
+    return [(self, self.last_output)]
 
 class DotAttender(Attender, Serializable):
   '''
