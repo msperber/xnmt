@@ -1,12 +1,14 @@
 import numpy as np
 import dynet as dy
-from xnmt.batcher import Mask
-from xnmt.expression_sequence import ExpressionSequence
+
 from xnmt.batch_norm import BatchNorm
-from xnmt.transducer import SeqTransducer
+from xnmt.batcher import Mask
 from xnmt.events import register_handler, handle_xnmt_event
+from xnmt.expression_sequence import ExpressionSequence
+from xnmt.linear import Linear
 from xnmt.serialize.serializable import Serializable
 from xnmt.serialize.tree_tools import Ref, Path
+from xnmt.transducer import SeqTransducer
 
 class WeightNoise(object):
   def __init__(self, std):
@@ -90,7 +92,8 @@ class TimePadder(object):
 
 class NiNLayer(SeqTransducer):
   def __init__(self, input_dim, hidden_dim, use_proj=True, use_bn=True,
-               nonlinearity="rectify", downsampling_factor=1, exp_global=Ref(Path("exp_global"))):
+               nonlinearity="rectify", downsampling_factor=1, exp_global=Ref(Path("exp_global")),
+               glorot_gain=None):
     register_handler(self)
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
@@ -103,10 +106,10 @@ class NiNLayer(SeqTransducer):
     self.downsampling_factor = downsampling_factor
     self.timePadder = TimePadder(mode="zero")
     if downsampling_factor < 1: raise ValueError("downsampling_factor must be >= 1")
-    if not use_proj:
-      if hidden_dim!=input_dim*downsampling_factor: raise ValueError("disabling projections requires hidden_dim == input_dim*downsampling_factor") 
     if use_proj:
-      self.p_proj = exp_global.dynet_param_collection.param_col.add_parameters(dim=(hidden_dim, input_dim*downsampling_factor))
+      glorot_gain = glorot_gain or exp_global.glorot_gain
+      self.p_proj = exp_global.dynet_param_collection.param_col.add_parameters(dim=(hidden_dim, input_dim*downsampling_factor), init=dy.GlorotInitializer(gain=glorot_gain))
+    elif hidden_dim!=input_dim*downsampling_factor: raise ValueError("disabling projections requires hidden_dim == input_dim*downsampling_factor") 
     if self.use_bn:
       self.bn = BatchNorm(exp_global.dynet_param_collection.param_col, hidden_dim, 2, time_first=False)
       
@@ -166,18 +169,6 @@ class NiNLayer(SeqTransducer):
     self.train = val
 
 
-class Linear(object):
-  def __init__(self, input_dim, output_dim, model):
-    self.W1 = model.add_parameters((output_dim, input_dim))
-    self.b1 = model.add_parameters(output_dim)
-
-  def __call__(self, input_expr):
-    W1 = dy.parameter(self.W1)
-    b1 = dy.parameter(self.b1)
-
-    return dy.affine_transform([b1, W1, input_expr])
-
-
 class LayerNorm(object):
   def __init__(self, d_hid, model):
     self.p_g = model.add_parameters(dim=d_hid, init=dy.ConstInitializer(1.0))
@@ -200,15 +191,15 @@ class TimeDistributed(object):
 
 
 class PositionwiseFeedForward(object):
-  def __init__(self, input_dim, hidden_dim, model, nonlinearity="rectify"):
+  def __init__(self, input_dim, hidden_dim, model, nonlinearity="rectify", glorot_gain=1.0):
     """
     Args:
         input_dim(int): the size of input for the first-layer of the FFN.
         hidden_dim(int): the hidden layer size of the second-layer
                           of the FNN.
     """
-    self.w_1 = Linear(input_dim, hidden_dim, model)
-    self.w_2 = Linear(hidden_dim, input_dim, model)
+    self.w_1 = Linear(input_dim, hidden_dim, model, glorot_gain=glorot_gain)
+    self.w_2 = Linear(hidden_dim, input_dim, model, glorot_gain=glorot_gain)
     self.layer_norm = LayerNorm(input_dim, model)
     self.nonlinearity = getattr(dy,nonlinearity)
 
@@ -218,14 +209,14 @@ class PositionwiseFeedForward(object):
     return self.layer_norm(output + residual)
 
 class PositionwiseLinear(object):
-  def __init__(self, input_dim, hidden_dim, model):
+  def __init__(self, input_dim, hidden_dim, model, glorot_gain=1.0):
     """
     Args:
         input_dim(int): the size of input for the first-layer of the FFN.
         hidden_dim(int): the hidden layer size of the second-layer
                           of the FNN.
     """
-    self.w_1 = Linear(input_dim, hidden_dim, model)
+    self.w_1 = Linear(input_dim, hidden_dim, model, glorot_gain=glorot_gain)
 
   def __call__(self, x):
     return self.w_1(x)

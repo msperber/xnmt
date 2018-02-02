@@ -1,10 +1,14 @@
+from collections.abc import Sequence
+import math
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from sklearn.metrics.pairwise import cosine_similarity
-import dynet as dy
-import math
+
 import numpy as np
+import dynet as dy
+
 from xnmt.expression_sequence import ExpressionSequence
 from xnmt.nn import LayerNorm, Linear, PositionwiseFeedForward, TimeDistributed, PositionwiseLinear
 from xnmt.transducer import SeqTransducer, FinalTransducerState
@@ -12,14 +16,14 @@ from xnmt.serialize.serializable import Serializable
 from xnmt.serialize.tree_tools import Ref, Path
 from xnmt.events import register_handler, handle_xnmt_event
 
-
 MAX_SIZE = 5000
 MIN_VAL = -10000   # This value is close to NEG INFINITY
 
 class MultiHeadedAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
                is_self_att=False, ignore_masks=False, plot_attention=None,
-               diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip"):
+               diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip",
+               glorot_gain=1.0):
     """
     :param head_count: number of self-att heads
     :param model_dim: 
@@ -54,12 +58,12 @@ class MultiHeadedAttention(object):
     
     if is_self_att:
       self.linear_kvq = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor,
-                               head_count * self.dim_per_head * 3, model)
+                               head_count * self.dim_per_head * 3, model, glorot_gain=glorot_gain)
       
     else:
-      self.linear_keys = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model)
-      self.linear_values = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model)
-      self.linear_query = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model)
+      self.linear_keys = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
+      self.linear_values = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
+      self.linear_query = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
     
     if self.diag_gauss_mask:
       if self.diag_gauss_mask=="rand":
@@ -72,9 +76,9 @@ class MultiHeadedAttention(object):
     self.layer_norm = LayerNorm(model_dim, model)
     
     if self.downsampling_method=="reshape":
-      if model_dim != input_dim * downsample_factor: self.res_shortcut = PositionwiseLinear(input_dim * downsample_factor, model_dim, model)
+      if model_dim != input_dim * downsample_factor: self.res_shortcut = PositionwiseLinear(input_dim * downsample_factor, model_dim, model, glorot_gain=glorot_gain)
     else:
-      if model_dim != input_dim: self.res_shortcut = PositionwiseLinear(input_dim, model_dim, model)
+      if model_dim != input_dim: self.res_shortcut = PositionwiseLinear(input_dim, model_dim, model, glorot_gain=glorot_gain)
  
   def plot_att_mat(self, mat, filename, dpi=1200):
     fig = plt.figure()
@@ -246,13 +250,15 @@ class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
-               square_mask_std=False, downsampling_method="skip"):
+               square_mask_std=False, downsampling_method="skip", glorot_gain=1.0):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
                                           input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
                                           plot_attention=plot_attention,
                                           diag_gauss_mask=diag_gauss_mask, square_mask_std=square_mask_std,
-                                          downsampling_method=downsampling_method)
-    self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity)
+                                          downsampling_method=downsampling_method,
+                                          glorot_gain=glorot_gain)
+    self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity,
+                                                glorot_gain=glorot_gain)
     self.head_count = head_count
     self.downsample_factor = downsample_factor
     self.diagonal_mask_width = diagonal_mask_width
@@ -303,9 +309,11 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
                ignore_masks=False, plot_attention=None,
                nonlinearity="rectify", positional_encoding=False, positional_encoding_concat=0,
-               diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip"):
+               diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip",
+               glorot_gain=None):
     register_handler(self)
     param_col = exp_global.dynet_param_collection.param_col
+    glorot_gain = glorot_gain or exp_global.glorot_gain
     self.input_dim = input_dim = input_dim + positional_encoding_concat
     self.hidden_dim = hidden_dim
     self.dropout = dropout or exp_global.dropout
@@ -331,7 +339,8 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   nonlinearity=nonlinearity,
                                                   diag_gauss_mask=diag_gauss_mask,
                                                   square_mask_std=square_mask_std,
-                                                  downsampling_method=downsampling_method))
+                                                  downsampling_method=downsampling_method,
+                                                  glorot_gain=glorot_gain[layer_i] if isinstance(glorot_gain,Sequence) else glorot_gain))
 
   def __call__(self, sent):
     if self.positional_encoding:

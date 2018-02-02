@@ -1,5 +1,8 @@
 import math
+from collections.abc import Sequence
+
 import dynet as dy
+
 from xnmt.batch_norm import BatchNorm
 from xnmt.expression_sequence import ExpressionSequence
 from xnmt.nn import WeightNoise
@@ -15,13 +18,12 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
   """
   yaml_tag = u'!StridedConvSeqTransducer'
     
-  def __init__(self, exp_global=Ref(Path("exp_global")), init_gauss_var=0.1, weight_noise=0.0,
+  def __init__(self, exp_global=Ref(Path("exp_global")), weight_noise=0.0,
                layers=1, input_dim=120, chn_dim=3, num_filters=32, stride=(2,2), 
                batch_norm=False, nonlinearity="rectify", pre_activation=False,
-               output_tensor=False, transpose=True):
+               output_tensor=False, transpose=True, glorot_gain=None):
     """
     :param param_col:
-    :param init_gauss_var: initialize filter weights with Gaussian noise of given variance
     :param weight_noise: apply Gaussian noise of given standard deviation to weights (training time only)
     :param layers: encoder depth
     :param input_dim: size of the inputs, before factoring out the channels.
@@ -34,6 +36,7 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
     :param pre_activation: If True, please BN + nonlinearity before CNN
     :param output_transposed_tensor: True -> output is a expression sequence holding a 3d-tensor (including channel dimension), in transposed form (time is first dimension)
                                      False -> output is a expression sequence holding a list of flat vector expressions (frequency and channel dimensions are merged)
+    :param glorot_gain:
     """
     register_handler(self)
     assert layers > 0
@@ -57,15 +60,15 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
     self.transpose = transpose
     self.weight_noise = WeightNoise(weight_noise)
     
-    normalInit=dy.NormalInitializer(0, init_gauss_var)
     self.bn_layers = []
     self.filters_layers = []
+    glorot_gain = glorot_gain or exp_global.glorot_gain
     for layer_i in range(layers):
       filters = param_col.add_parameters(dim=(self.filter_size_time,
-                                          self.filter_size_freq,
-                                          self.chn_dim if layer_i==0 else self.num_filters,
-                                          self.num_filters * (2 if self.nonlinearity=="maxout" else 1)),
-                                     init=normalInit)
+                                              self.filter_size_freq,
+                                              self.chn_dim if layer_i==0 else self.num_filters,
+                                              self.num_filters * (2 if self.nonlinearity=="maxout" else 1)),
+                                         init=dy.GlorotInitializer(gain=glorot_gain[layer_i] if isinstance(glorot_gain, Sequence) else glorot_gain))
       if self.use_bn:
         self.bn_layers.append(BatchNorm(param_col, (self.chn_dim if self.pre_activation else self.num_filters) * (2 if self.nonlinearity=="maxout" else 1), 3))
       self.filters_layers.append(filters)
@@ -166,7 +169,7 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!PoolingConvSeqTransducer'
   
   def __init__(self, input_dim, pooling=[None, (1,1)], chn_dim=3, num_filters=32, 
-               output_tensor=False, nonlinearity="rectify", init_gauss_var=0.1, exp_global=Ref(Path("exp_global"))):
+               output_tensor=False, nonlinearity="rectify", exp_global=Ref(Path("exp_global")), glorot_gain=None):
     """
     :param layers: encoder depth
     :param input_dim: size of the inputs, before factoring out the channels.
@@ -191,8 +194,8 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
     self.pooling = pooling
     self.output_tensor = output_tensor
     self.nonlinearity = nonlinearity
+    glorot_gain = glorot_gain or exp_global.glorot_gain
     
-    normalInit=dy.NormalInitializer(0, init_gauss_var)
     self.bn_layers = []
     self.filters_layers = []
     self.bn_alt_layers = []
@@ -202,14 +205,14 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
                                           self.filter_size_freq,
                                           self.chn_dim if layer_i==0 else self.num_filters,
                                           self.num_filters),
-                                     init=normalInit)
+                                     init=dy.GlorotInitializer(gain=glorot_gain[layer_i] if isinstance(glorot_gain,Sequence) else glorot_gain))
       self.filters_layers.append(filters)
       if self.nonlinearity=="maxout":
         filters_alt = model.add_parameters(dim=(self.filter_size_time,
                                           self.filter_size_freq,
                                           self.chn_dim if layer_i==0 else self.num_filters,
                                           self.num_filters),
-                                     init=normalInit)
+                                     init=dy.GlorotInitializer(gain=glorot_gain[layer_i] if isinstance(glorot_gain,Sequence) else glorot_gain))
         self.filters_alt_layers.append(filters_alt)
   
   def get_output_dim(self):

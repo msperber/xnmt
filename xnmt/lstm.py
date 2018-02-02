@@ -230,7 +230,7 @@ class CustomLSTMSeqTransducer(SeqTransducer):
 
 class ResConvLSTMSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!ResConvLSTMSeqTransducer'
-  def __init__(self, input_dim, num_filters=32, exp_global=Ref(Path("exp_global"))):
+  def __init__(self, input_dim, num_filters=32, exp_global=Ref(Path("exp_global")), glorot_gain=None):
     register_handler(self)
     model = exp_global.dynet_param_collection.param_col
     if input_dim%num_filters!=0: raise RuntimeError("input_dim must be divisible by num_filters")
@@ -239,8 +239,8 @@ class ResConvLSTMSeqTransducer(SeqTransducer, Serializable):
     self.num_filters = num_filters
     self.freq_dim = input_dim / num_filters
     
-    self.convLstm1 = ConvLSTMSeqTransducer(exp_global=exp_global, input_dim=input_dim, chn_dim=num_filters, num_filters=num_filters/2, input_transposed=False, reshape_output=False)
-    self.convLstm2 = ConvLSTMSeqTransducer(exp_global=exp_global, input_dim=input_dim, chn_dim=num_filters, num_filters=num_filters/2, input_transposed=True, reshape_output=False)
+    self.convLstm1 = ConvLSTMSeqTransducer(exp_global=exp_global, input_dim=input_dim, chn_dim=num_filters, num_filters=num_filters/2, input_transposed=False, reshape_output=False, glorot_gain=glorot_gain)
+    self.convLstm2 = ConvLSTMSeqTransducer(exp_global=exp_global, input_dim=input_dim, chn_dim=num_filters, num_filters=num_filters/2, input_transposed=True, reshape_output=False, glorot_gain=glorot_gain)
     self.bn1 = BatchNorm(model, num_filters, 3)
     self.bn2 = BatchNorm(model, num_filters, 3)
     self.train = True
@@ -262,7 +262,7 @@ class ConvLSTMSeqTransducer(SeqTransducer):
   """
   This is a ConvLSTM implementation using a single bidirectional layer.
   """
-  def __init__(self, input_dim, chn_dim=3, num_filters=32, input_transposed=False, reshape_output=True, exp_global=Ref(Path("exp_global"))):
+  def __init__(self, input_dim, chn_dim=3, num_filters=32, input_transposed=False, reshape_output=True, exp_global=Ref(Path("exp_global")), glorot_gain=None):
     """
     :param input_dim: product of frequency and channel dimension
     :param model: DyNet parameter collection
@@ -279,12 +279,14 @@ class ConvLSTMSeqTransducer(SeqTransducer):
       raise RuntimeError("input_dim must be divisible by chn_dim")
     self.input_dim = input_dim
 
+    glorot_gain = glorot_gain or exp_global.glorot_gain
+
     self.chn_dim = chn_dim
     self.freq_dim = input_dim / chn_dim
     self.num_filters = num_filters
     self.filter_size_time = 1
     self.filter_size_freq = 3
-    normalInit=dy.NormalInitializer(0, 0.001)
+    initializer=dy.GlorotInitializer(gain = glorot_gain)
     self.reshape_output = reshape_output
     self.input_transposed = input_transposed
     
@@ -293,13 +295,13 @@ class ConvLSTMSeqTransducer(SeqTransducer):
       self.params["x2all_" + direction] = \
           model.add_parameters(dim=(self.filter_size_time, self.filter_size_freq, 
                                     self.chn_dim, self.num_filters * 4),
-                               init=normalInit)
+                               init=initializer)
       self.params["h2all_" + direction] = \
           model.add_parameters(dim=(self.filter_size_time, self.filter_size_freq, 
                                     self.num_filters, self.num_filters * 4),
-                               init=normalInit)
+                               init=initializer)
       self.params["b_" + direction] = \
-          model.add_parameters(dim=(self.num_filters * 4,), init=normalInit)
+          model.add_parameters(dim=(self.num_filters * 4,), init=dy.ConstInitializer(0.0))
 
   def __call__(self, es, mask=None):
     if self.input_transposed:
@@ -380,7 +382,8 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
                nin_enabled=True, nin_depth=1, stride=1,
                batch_norm=False, nonlinearity="rectify", pre_activation=False, 
                weight_norm=False, weight_noise = None, dropout=None,
-               exp_global=Ref(Path("exp_global"))):
+               exp_global=Ref(Path("exp_global")), glorot_gain_lstm=None,
+               glorot_gain_nin=None):
     """
     :param exp_global:
     :param layers: depth of the network
@@ -399,6 +402,7 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
     assert nin_depth > 0
     register_handler(self)
     
+    glorot_gain_lstm = glorot_gain_lstm or exp_global.glorot_gain
     self.builder_layers = []
     self.hidden_dim = hidden_dim
     self.stride=stride
@@ -407,55 +411,65 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
     self.nonlinearity = nonlinearity
     self.pre_activation = pre_activation
     f = UniLSTMSeqTransducer(exp_global=exp_global, input_dim=input_dim, hidden_dim=hidden_dim / 2, dropout=dropout, 
-                             weight_norm=weight_norm, weightnoise_std = weight_noise)
+                             weight_norm=weight_norm, weightnoise_std = weight_noise,
+                             glorot_gain=glorot_gain_lstm[0] if isinstance(glorot_gain_lstm, Sequence) else glorot_gain_lstm)
     b = UniLSTMSeqTransducer(exp_global=exp_global, input_dim=input_dim, hidden_dim=hidden_dim / 2, dropout=dropout, 
-                             weight_norm=weight_norm, weightnoise_std = weight_noise)
+                             weight_norm=weight_norm, weightnoise_std = weight_noise,
+                             glorot_gain=glorot_gain_lstm[0] if isinstance(glorot_gain_lstm, Sequence) else glorot_gain_lstm)
     self.builder_layers.append((f, b))
-    for _ in range(layers - 1):
+    for i in range(1, layers):
       f = UniLSTMSeqTransducer(exp_global=exp_global, input_dim=hidden_dim, hidden_dim=hidden_dim / 2, dropout=dropout, 
-                              weight_norm=weight_norm, weightnoise_std = weight_noise)
+                              weight_norm=weight_norm, weightnoise_std = weight_noise,
+                              glorot_gain=glorot_gain_lstm[i] if isinstance(glorot_gain_lstm, Sequence) else glorot_gain_lstm)
       b = UniLSTMSeqTransducer(exp_global=exp_global, input_dim=hidden_dim, hidden_dim=hidden_dim / 2, dropout=dropout, 
-                              weight_norm=weight_norm, weightnoise_std = weight_noise)
+                              weight_norm=weight_norm, weightnoise_std = weight_noise,
+                              glorot_gain=glorot_gain_lstm[i] if isinstance(glorot_gain_lstm, Sequence) else glorot_gain_lstm)
       self.builder_layers.append((f, b))
     
     self.nin_layers = []
     if not nin_enabled:
       assert self.stride == 1
       self.nin_layers.append([]) # no pre-activation
-      for _ in range(layers):
+      for i in range(layers):
         self.nin_layers.append([NiNLayer(exp_global=exp_global, input_dim=hidden_dim/2, hidden_dim=hidden_dim,
-                                         use_bn=False, nonlinearity="id", use_proj=False, 
-                                         downsampling_factor=2)])
+                                         use_bn=False, nonlinearity="id", use_proj=False, downsampling_factor=2,
+                                         glorot_gain=glorot_gain_nin[i] if isinstance(glorot_gain_nin, Sequence) else glorot_gain_nin)])
     else:
       if pre_activation:
         # first pre-activation
         self.nin_layers.append([NiNLayer(exp_global=exp_global, input_dim=input_dim, hidden_dim=input_dim,
-                                         use_proj=False, use_bn=batch_norm, nonlinearity=self.nonlinearity)])
-        for _ in range(layers-1):
+                                         use_proj=False, use_bn=batch_norm, nonlinearity=self.nonlinearity,
+                                         glorot_gain=glorot_gain_nin[0] if isinstance(glorot_gain_nin, Sequence) else glorot_gain_nin)])
+        for i in range(layers-1):
           nin_layer = []
           for nin_i in range(nin_depth):
             nin_layer.append(NiNLayer(exp_global=exp_global, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
                                       use_bn=batch_norm, nonlinearity=self.nonlinearity, 
-                                      downsampling_factor=2*self.stride if nin_i==0 else 1))
+                                      downsampling_factor=2*self.stride if nin_i==0 else 1,
+                                      glorot_gain=glorot_gain_nin[i] if isinstance(glorot_gain_nin, Sequence) else glorot_gain_nin),
+                             )
           self.nin_layers.append(nin_layer)
         nin_layer = []
         for nin_i in range(nin_depth-1):
           nin_layer.append(NiNLayer(exp_global=exp_global, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
                                     use_bn=batch_norm, nonlinearity=self.nonlinearity, 
-                                    downsampling_factor=2*self.stride if nin_i==0 else 1))
+                                    downsampling_factor=2*self.stride if nin_i==0 else 1,
+                                    glorot_gain=glorot_gain_nin[-1] if isinstance(glorot_gain_nin, Sequence) else glorot_gain_nin))
         # very last layer: counterpiece to the first pre-activation
         nin_layer.append(NiNLayer(exp_global=exp_global, input_dim=hidden_dim/2 if nin_depth==1 else hidden_dim, hidden_dim=hidden_dim, 
                                   use_proj=True, use_bn=False, nonlinearity="id",
-                                  downsampling_factor=2*self.stride if nin_depth==1 else 1))
+                                  downsampling_factor=2*self.stride if nin_depth==1 else 1,
+                                  glorot_gain=glorot_gain_nin[-1] if isinstance(glorot_gain_nin, Sequence) else glorot_gain_nin))
         self.nin_layers.append(nin_layer)
       else:
         self.nin_layers.append([]) # no pre-activation
-        for _ in range(layers):
+        for i in range(layers):
           nin_layer = []
           for nin_i in range(nin_depth):
             nin_layer.append(NiNLayer(exp_global=exp_global, input_dim=hidden_dim/2 if nin_i==0 else hidden_dim, hidden_dim=hidden_dim,
                                       use_bn=batch_norm, nonlinearity=self.nonlinearity, 
-                                      downsampling_factor=2*self.stride if nin_i==0 else 1))
+                                      downsampling_factor=2*self.stride if nin_i==0 else 1,
+                                      glorot_gain=glorot_gain_nin[i] if isinstance(glorot_gain_nin, Sequence) else glorot_gain_nin))
           self.nin_layers.append(nin_layer)
 
   @handle_xnmt_event
@@ -509,7 +523,7 @@ class QLSTMSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!QLSTMSeqTransducer'
   
   def __init__(self, exp_global=Ref(Path("exp_global")), input_dim=None, hidden_dim=None, dropout = None,
-               filter_width=2, stride=1):
+               filter_width=2, stride=1, glorot_gain=None):
     register_handler(self)
     model = exp_global.dynet_param_collection.param_col
     input_dim = input_dim or exp_global.default_layer_dim
@@ -518,9 +532,10 @@ class QLSTMSeqTransducer(SeqTransducer, Serializable):
     self.dropout = dropout or exp_global.dropout
     self.input_dim = input_dim
     self.stride = stride
+    glorot_gain = glorot_gain or exp_global.glorot_gain
 
-    self.p_f = model.add_parameters(dim=(filter_width, 1, input_dim, hidden_dim * 3)) # f, o, z
-    self.p_b = model.add_parameters(dim=(hidden_dim * 3,))
+    self.p_f = model.add_parameters(dim=(filter_width, 1, input_dim, hidden_dim * 3), init=dy.GlorotInitializer(gain=glorot_gain)) # f, o, z
+    self.p_b = model.add_parameters(dim=(hidden_dim * 3,), init=dy.ConstInitializer(0.0))
 
   @handle_xnmt_event
   def on_set_train(self, val):
@@ -598,18 +613,23 @@ class QLSTMSeqTransducer(SeqTransducer, Serializable):
 class BiQLSTMSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!BiQLSTMSeqTransducer'
   
-  def __init__(self, layers, input_dim=None, hidden_dim=None, dropout=None, stride=1, filter_width=2, exp_global=Ref(Path("exp_global"))):
+  def __init__(self, layers, input_dim=None, hidden_dim=None, dropout=None, stride=1, filter_width=2, exp_global=Ref(Path("exp_global")), glorot_gain=None):
     register_handler(self)
     self.num_layers = layers
     input_dim = input_dim or exp_global.default_layer_dim
     hidden_dim = hidden_dim or exp_global.default_layer_dim
     self.hidden_dim = hidden_dim
     dropout = dropout or exp_global.dropout
+    glorot_gain = glorot_gain or exp_global.glorot_gain
     assert hidden_dim % 2 == 0
-    self.forward_layers = [QLSTMSeqTransducer(exp_global=exp_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width)]
-    self.backward_layers = [QLSTMSeqTransducer(exp_global=exp_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width)]
-    self.forward_layers += [QLSTMSeqTransducer(exp_global=exp_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width) for _ in range(layers-1)]
-    self.backward_layers += [QLSTMSeqTransducer(exp_global=exp_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width) for _ in range(layers-1)]
+    self.forward_layers = [QLSTMSeqTransducer(exp_global=exp_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width,
+                                              glorot_gain=glorot_gain[0] if isinstance(glorot_gain, Sequence) else glorot_gain)]
+    self.backward_layers = [QLSTMSeqTransducer(exp_global=exp_global, input_dim=input_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width,
+                                               glorot_gain=glorot_gain[0] if isinstance(glorot_gain, Sequence) else glorot_gain)]
+    self.forward_layers += [QLSTMSeqTransducer(exp_global=exp_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width,
+                                               glorot_gain=glorot_gain[i] if isinstance(glorot_gain, Sequence) else glorot_gain) for i in range(1,layers)]
+    self.backward_layers += [QLSTMSeqTransducer(exp_global=exp_global, input_dim=hidden_dim, hidden_dim=hidden_dim/2, dropout=dropout, stride=stride, filter_width=filter_width,
+                                                glorot_gain=glorot_gain[i] if isinstance(glorot_gain, Sequence) else glorot_gain) for i in range(1,layers)]
 
   @handle_xnmt_event
   def on_start_sent(self, src):
