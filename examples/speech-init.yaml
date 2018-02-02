@@ -3,7 +3,7 @@
 # the pyramidal LSTM reduces length of the input sequence by a factor of 2 per layer (except for the first layer).
 # Output units should be characters according to the paper.
 speech-2layers: !Experiment
-  exp_global: !ExpGlobal
+  xnmt_global: !XnmtGlobal
     model_file: examples/output/{EXP}.mod
     out_file: examples/output/{EXP}.out
     err_file: examples/output/{EXP}.err
@@ -33,7 +33,7 @@ speech-2layers: !Experiment
       transpose: True
     trg_reader: !PlainTextReader
       vocab: !Vocab {vocab_file: examples/data/head.en.vocab}
-  train: !SimpleTrainingRegimen
+  train: !DebugInitTrainingRegimen
     run_for_epochs: 20
     batcher: !SrcBatcher
       pad_src_to_multiple: 4

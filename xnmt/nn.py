@@ -90,7 +90,7 @@ class TimePadder(object):
 
 class NiNLayer(SeqTransducer):
   def __init__(self, input_dim, hidden_dim, use_proj=True, use_bn=True,
-               nonlinearity="rectify", downsampling_factor=1, xnmt_global=Ref(Path("xnmt_global"))):
+               nonlinearity="rectify", downsampling_factor=1, exp_global=Ref(Path("exp_global"))):
     register_handler(self)
     self.input_dim = input_dim
     self.hidden_dim = hidden_dim
@@ -106,9 +106,9 @@ class NiNLayer(SeqTransducer):
     if not use_proj:
       if hidden_dim!=input_dim*downsampling_factor: raise ValueError("disabling projections requires hidden_dim == input_dim*downsampling_factor") 
     if use_proj:
-      self.p_proj = xnmt_global.dynet_param_collection.param_col.add_parameters(dim=(hidden_dim, input_dim*downsampling_factor))
+      self.p_proj = exp_global.dynet_param_collection.param_col.add_parameters(dim=(hidden_dim, input_dim*downsampling_factor))
     if self.use_bn:
-      self.bn = BatchNorm(xnmt_global.dynet_param_collection.param_col, hidden_dim, 2, time_first=False)
+      self.bn = BatchNorm(exp_global.dynet_param_collection.param_col, hidden_dim, 2, time_first=False)
       
   def __call__(self, es):
     """

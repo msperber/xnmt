@@ -7,19 +7,19 @@ from xnmt.expression_sequence import ExpressionSequence
 
 class FullyConnectedSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!FullyConnectedSeqTransducer'
-  def __init__(self, in_height, out_height, nonlinearity='linear', xnmt_global=Ref(Path("xnmt_global"))):
+  def __init__(self, in_height, out_height, nonlinearity='linear', exp_global=Ref(Path("exp_global"))):
     """
       :param in_height, out_height: input and output dimension of the affine transform
       :param nonlinearity: nonlinear activation function
     """
-    model = xnmt_global.dynet_param_collection.param_col
+    model = exp_global.dynet_param_collection.param_col
     self.in_height = in_height
     self.out_height = out_height
     self.nonlinearity = nonlinearity
 
     normalInit=dy.NormalInitializer(0, 0.1)
     self.pW = model.add_parameters(dim = (self.out_height, self.in_height), init=normalInit)
-    self.pb = model.add_parameters(dim = self.out_height)
+    self.pb = model.add_parameters(dim = self.out_height, init=dy.ConstInitializer(0.0))
 
   def get_final_states(self):
     return self._final_states

@@ -15,7 +15,7 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
   """
   yaml_tag = u'!StridedConvSeqTransducer'
     
-  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), init_gauss_var=0.1, weight_noise=0.0,
+  def __init__(self, exp_global=Ref(Path("exp_global")), init_gauss_var=0.1, weight_noise=0.0,
                layers=1, input_dim=120, chn_dim=3, num_filters=32, stride=(2,2), 
                batch_norm=False, nonlinearity="rectify", pre_activation=False,
                output_tensor=False, transpose=True):
@@ -40,7 +40,7 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
     if input_dim % chn_dim != 0:
       raise ValueError("StridedConvEncoder requires input_dim mod chn_dim == 0, got: %s and %s" % (input_dim, chn_dim))
     
-    param_col = xnmt_global.dynet_param_collection.param_col
+    param_col = exp_global.dynet_param_collection.param_col
     self.layers = layers
     self.chn_dim = chn_dim
     self.freq_dim = input_dim / chn_dim
@@ -166,7 +166,7 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!PoolingConvSeqTransducer'
   
   def __init__(self, input_dim, pooling=[None, (1,1)], chn_dim=3, num_filters=32, 
-               output_tensor=False, nonlinearity="rectify", init_gauss_var=0.1, xnmt_global=Ref(Path("xnmt_global"))):
+               output_tensor=False, nonlinearity="rectify", init_gauss_var=0.1, exp_global=Ref(Path("exp_global"))):
     """
     :param layers: encoder depth
     :param input_dim: size of the inputs, before factoring out the channels.
@@ -180,7 +180,7 @@ class PoolingConvSeqTransducer(SeqTransducer, Serializable):
     raise Exception("TODO: buggy, needs proper transposing")
     assert input_dim % chn_dim == 0
     
-    model = xnmt_global.dynet_param_collection.param_col
+    model = exp_global.dynet_param_collection.param_col
     self.layers = len(pooling)
     assert self.layers > 0
     self.chn_dim = chn_dim

@@ -298,17 +298,17 @@ class TransformerEncoderLayer(object):
 class TransformerSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!TransformerSeqTransducer'
 
-  def __init__(self, xnmt_global=Ref(Path("xnmt_global")), input_dim=512, layers=1, hidden_dim=512, 
+  def __init__(self, exp_global=Ref(Path("exp_global")), input_dim=512, layers=1, hidden_dim=512, 
                head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
                ignore_masks=False, plot_attention=None,
                nonlinearity="rectify", positional_encoding=False, positional_encoding_concat=0,
                diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip"):
     register_handler(self)
-    param_col = xnmt_global.dynet_param_collection.param_col
+    param_col = exp_global.dynet_param_collection.param_col
     self.input_dim = input_dim = input_dim + positional_encoding_concat
     self.hidden_dim = hidden_dim
-    self.dropout = dropout or xnmt_global.dropout
+    self.dropout = dropout or exp_global.dropout
     self.layers = layers
     self.modules = []
     self.positional_encoding = positional_encoding
