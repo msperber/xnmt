@@ -77,6 +77,14 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
   def on_set_train(self, val):
     self.train = val
 
+  @handle_xnmt_event
+  def on_start_sent(self, src):
+    self.last_output = []
+    
+  @handle_xnmt_event
+  def on_collect_recent_outputs(self):
+    return [(self, o) for o in self.last_output]
+
   def get_output_dim(self):
     conv_dim = self.freq_dim
     for layer_i in range(self.layers):
@@ -149,6 +157,7 @@ class StridedConvSeqTransducer(SeqTransducer, Serializable):
         cnn_layer = self.bn_layers[layer_i](cnn_layer, train=self.train, mask=mask_out)
           
       cnn_layer = self.apply_nonlinearity(self.nonlinearity, cnn_layer)
+      self.last_output.append(cnn_layer)
 
       if self.pre_activation:
         cnn_layer = dy.conv2d(cnn_layer, cnn_filter, stride=self.get_stride_for_layer(layer_i), is_valid=True)

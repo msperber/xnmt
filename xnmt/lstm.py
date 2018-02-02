@@ -475,6 +475,11 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
   @handle_xnmt_event
   def on_start_sent(self, *args, **kwargs):
     self._final_states = None
+    self.last_output = []
+    
+  @handle_xnmt_event
+  def on_collect_recent_outputs(self):
+    return [(self, o) for o in self.last_output]
 
   def get_final_states(self):
     assert self._final_states is not None, "LSTMSeqTransducer.__call__() must be invoked before LSTMSeqTransducer.get_final_states()"
@@ -506,6 +511,8 @@ class NetworkInNetworkBiLSTMTransducer(SeqTransducer, Serializable):
         projected = nin_layer(projected)
       assert math.ceil(len(es) / float(self.stride))==len(projected)
       es = projected
+      if es.has_list(): self.last_output.append(es.as_list())
+      else: self.last_output.append(es.as_tensor())
     
     self._final_states = [FinalTransducerState(projected[-1])]
     return projected

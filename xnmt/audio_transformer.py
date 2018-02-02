@@ -297,6 +297,7 @@ class TransformerEncoderLayer(object):
     if self.downsample_factor > 1 and out_mask is not None:
       out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
     
+    self._recent_output = out
     return ExpressionSequence(expr_tensor=dy.reshape(out, (out.dim()[0][0], seq_len), batch_size=batch_size), mask=out_mask)
 
 
@@ -355,14 +356,24 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                 mask=sent.mask)
     for module in self.modules:
       enc_sent = module.transduce(sent)
+      self.last_output.append(module._recent_output)
       sent = enc_sent
     self._final_states = [FinalTransducerState(sent[-1])]
     return sent
 
   @handle_xnmt_event
+  def on_start_sent(self, src):
+    self._final_states = None
+    self.last_output = []
+
+  @handle_xnmt_event
   def on_set_train(self, val):
     for module in self.modules:
       module.set_dropout(self.dropout if val else 0.0)
+
+  @handle_xnmt_event
+  def on_collect_recent_outputs(self):
+    return [(self, o) for o in self.last_output]
 
   def initialize_position_encoding(self, length, n_units):
     # Implementation in the Google tensor2tensor repo
