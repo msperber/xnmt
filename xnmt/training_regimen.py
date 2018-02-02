@@ -112,8 +112,8 @@ class SimpleTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable):
       if self.should_stop_training(): break
 
 
-class DebugInitTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable):
-  yaml_tag = '!DebugInitTrainingRegimen'
+class DiagnosticsTrainingRegimen(SimpleTrainingTask, TrainingRegimen, Serializable):
+  yaml_tag = '!DiagnosticsTrainingRegimen'
   def __init__(self, model=Ref(path=Path("model")), src_file=None, trg_file=None,
                dev_every=0, batcher=xnmt.batcher.SrcBatcher(32),
                loss_calculator=None, trainer=None, run_for_epochs=None,
