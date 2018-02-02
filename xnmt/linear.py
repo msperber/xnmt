@@ -4,15 +4,17 @@ from xnmt.initializer import LeCunUniform
 from xnmt.events import register_handler, handle_xnmt_event
 
 class Linear(object):
-  def __init__(self, input_dim, output_dim, model, bias=True, init=None):
+  def __init__(self, input_dim, output_dim, model, bias=True, init=None, glorot_gain=1.0):
     register_handler(self)
     self.bias = bias
     self.output_dim = output_dim
-    init_w, init_b = None, dy.ConstInitializer(0.0)
 
     if init == 'LeCunUniform':
       init_w = LeCunUniform(input_dim)
       init_b = LeCunUniform(output_dim)
+    else:
+      init_b = dy.ConstInitializer(0.0)
+      init_w = dy.GlorotInitializer(gain=glorot_gain)
 
     self.W1 = model.add_parameters((output_dim, input_dim), init=init_w)
     if self.bias:
