@@ -21,7 +21,7 @@ class UniLSTMSeqTransducer(SeqTransducer, Serializable):
   yaml_tag = u'!UniLSTMSeqTransducer'
   
   def __init__(self, exp_global=Ref(Path("exp_global")), input_dim=None, hidden_dim=None,
-               dropout = None, weightnoise_std=None, weight_norm = False, glorot_gain=None):
+               dropout = None, weightnoise_std=None, weight_norm = False, glorot_gain = 1):
     register_handler(self)
     model = exp_global.dynet_param_collection.param_col
     input_dim = input_dim or exp_global.default_layer_dim
@@ -111,6 +111,7 @@ class UniLSTMSeqTransducer(SeqTransducer, Serializable):
         c.append(expr_seq[0].mask.cmult_by_timestep_expr(c_t,pos_i,True) + expr_seq[0].mask.cmult_by_timestep_expr(c[-1],pos_i,False))
         h.append(expr_seq[0].mask.cmult_by_timestep_expr(h_t,pos_i,True) + expr_seq[0].mask.cmult_by_timestep_expr(h[-1],pos_i,False))
     self._final_states = [FinalTransducerState(h[-1], c[-1])]
+    
     return ExpressionSequence(expr_list=h[1:], mask=expr_seq[0].mask)
 
 class BiLSTMSeqTransducer(SeqTransducer, Serializable):
