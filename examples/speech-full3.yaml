@@ -3,7 +3,6 @@ speech-full:
     model_file: examples/output/<EXP>.mod
     hyp_file: examples/output/<EXP>.hyp
     out_file: examples/output/<EXP>.out
-    err_file: examples/output/<EXP>.err
     run_for_epochs: 20
     eval_metrics: cer,wer
   train: !SimpleTrainingRegimen

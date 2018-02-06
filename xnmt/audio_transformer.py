@@ -1,3 +1,5 @@
+import logging
+yaml_logger = logging.getLogger('yaml')
 from collections.abc import Sequence
 import math
 
@@ -23,7 +25,7 @@ class MultiHeadedAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
                is_self_att=False, ignore_masks=False, plot_attention=None,
                diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip",
-               glorot_gain=1.0):
+               glorot_gain=1.0, desc=None):
     """
     :param head_count: number of self-att heads
     :param model_dim: 
@@ -49,6 +51,7 @@ class MultiHeadedAttention(object):
     self.downsampling_method = downsampling_method
     self.plot_attention = plot_attention
     self.plot_attention_counter = 0
+    self.desc = desc
     
     self.ignore_masks = ignore_masks
     self.diag_gauss_mask = diag_gauss_mask
@@ -244,19 +247,21 @@ class MultiHeadedAttention(object):
 
   @handle_xnmt_event
   def on_new_epoch(self, training_regimen, num_sents):
-    print("current self-att gauss variances: ", self.diag_gauss_mask_sigma.as_array())
+    yaml_logger.info({"key":"self_att_mask_var: ", "val":[float(x) for x in list(self.diag_gauss_mask_sigma.as_array().flat)], "desc":self.desc})
 
 class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
-               square_mask_std=False, downsampling_method="skip", glorot_gain=1.0):
+               square_mask_std=False, downsampling_method="skip", glorot_gain=1.0,
+               desc=None):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
                                           input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
                                           plot_attention=plot_attention,
                                           diag_gauss_mask=diag_gauss_mask, square_mask_std=square_mask_std,
                                           downsampling_method=downsampling_method,
-                                          glorot_gain=glorot_gain)
+                                          glorot_gain=glorot_gain,
+                                          desc=desc)
     self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity,
                                                 glorot_gain=glorot_gain)
     self.head_count = head_count
@@ -341,7 +346,8 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   diag_gauss_mask=diag_gauss_mask,
                                                   square_mask_std=square_mask_std,
                                                   downsampling_method=downsampling_method,
-                                                  glorot_gain=glorot_gain[layer_i] if isinstance(glorot_gain,Sequence) else glorot_gain))
+                                                  glorot_gain=glorot_gain[layer_i] if isinstance(glorot_gain,Sequence) else glorot_gain,
+                                                  desc=f"layer_{layer_i}"))
 
   def __call__(self, sent):
     if self.positional_encoding:
