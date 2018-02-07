@@ -1,6 +1,10 @@
+import logging
+yaml_logger = logging.getLogger('yaml')
 import math
 
 import dynet as dy
+
+from simple_settings import settings
 
 from xnmt.events import register_handler, handle_xnmt_event
 from xnmt.serialize.serializable import Serializable
@@ -109,6 +113,8 @@ class MlpAttender(Attender, Serializable):
 
   def calc_context(self, state):
     attention = self.calc_attention(state)
+    if settings.LOG_ATTENTION:
+      yaml_logger.info({"key":"attention","value":attention.value().dumps()})
     I = self.curr_sent.as_tensor()
     output = I * attention
     self.last_output.append(output)

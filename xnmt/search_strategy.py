@@ -1,5 +1,10 @@
+import logging
+yaml_logger = logging.getLogger('yaml')
 import dynet as dy
 import numpy as np
+
+from simple_settings import settings
+
 from xnmt.length_normalization import *
 from xnmt.vocab import Vocab
 from xnmt.expression_sequence import ExpressionSequence
@@ -91,6 +96,8 @@ class BeamSearch(SearchStrategy):
           top_ids = np.argpartition(score, max(-len(score),-self.beam_size))[-self.beam_size:]
         else:
           top_ids = [forced_trg_ids[length]]
+          if settings.LOG_ATTENTION:
+            yaml_logger.info({"key":"forced_dec_id","value":forced_trg_ids[length]})
 
         for cur_id in top_ids:
           new_list = list(hyp.id_list)
