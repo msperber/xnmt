@@ -1,6 +1,6 @@
 import logging
-from Cython.Compiler.TypeSlots import descrdelfunc
 logger = logging.getLogger('xnmt')
+from Cython.Compiler.TypeSlots import descrdelfunc
 from collections import defaultdict, Counter
 import math
 import six

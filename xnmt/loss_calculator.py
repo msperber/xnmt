@@ -54,7 +54,6 @@ class MLELoss(Serializable):
           sampled_word = translator.decoder.sample_trg(dec_state, trg_sampling_prob)
           ref_word = xnmt.batcher.Batch([sampled_word[b] if random.random() < trg_sampling_prob else ref_word[b] for b in range(len(sampled_word))])
         dec_state = translator.decoder.add_input(dec_state, translator.trg_embedder.embed(ref_word))
-
     return dy.esum(losses)
 
 class ReinforceLoss(Serializable):

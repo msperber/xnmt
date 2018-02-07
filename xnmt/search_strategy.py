@@ -75,7 +75,6 @@ class BeamSearch(SearchStrategy):
 
     completed_hyp = []
     length = 0
-
     while len(completed_hyp) < self.beam_size and length < self.max_len:
       new_set = []
       for hyp in active_hyp:
@@ -102,7 +101,7 @@ class BeamSearch(SearchStrategy):
       length += 1
 
       active_hyp = sorted(new_set, key=lambda x: x.score, reverse=True)[:self.beam_size]
-
+     
     if len(completed_hyp) == 0:
       completed_hyp = active_hyp
 
