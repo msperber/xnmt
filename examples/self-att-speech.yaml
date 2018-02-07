@@ -41,7 +41,7 @@ speech-self-att: !Experiment
   train: !SimpleTrainingRegimen
     src_file: examples/data/synth.contvec.npz
     trg_file: examples/data/synth.char
-    run_for_epochs: 20
+    run_for_epochs: 1
     batcher: !SrcBatcher
       batch_size: 3
       pad_src_to_multiple: 4
@@ -69,3 +69,21 @@ speech-self-att: !Experiment
       hyp_file: examples/output/{EXP}.test_hyp
       inference: !SimpleInference
         post_process: join-char
+
+speech-self-att-forced: !Experiment
+  load: examples/output/speech-self-att.mod
+  overwrite:
+  - path: exp_global.eval_only
+    val: True
+  - path: evaluate
+    val:
+    - !AccuracyEvalTask
+      eval_metrics: bleu
+      inference: !SimpleInference
+        mode: forceddebug
+        ref_file: examples/data/synth.char
+        batcher: !Ref { path: train.batcher }
+      src_file: examples/data/synth.contvec.npz
+      ref_file: examples/data/synth.words
+      hyp_file: examples/output/{EXP}.forceddebug_hyp
+  
