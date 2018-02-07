@@ -137,7 +137,7 @@ class SimpleInference(Serializable):
             logger.error(f'Forced decoding score {output[0].score} and loss {ref_scores[i]} do not match at sentence {i}')
           output_txt = output[0].plaintext
         # Printing to trg file
-        fp.write(u"{}\n".format(output_txt))
+        fp.write(f"{output_txt}\n")
   
   def get_output_processor(self):
     spec = self.post_process
