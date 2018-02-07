@@ -80,9 +80,14 @@ speech-self-att-forced: !Experiment
     - !AccuracyEvalTask
       eval_metrics: bleu
       inference: !SimpleInference
+        max_len: 200
         mode: forceddebug
         ref_file: examples/data/synth.char
-        batcher: !Ref { path: train.batcher }
+        #batcher: !Ref { path: train.batcher }
+        batcher: !InOrderBatcher
+          batch_size: 1
+          pad_src_to_multiple: 4
+          src_pad_token: ~
       src_file: examples/data/synth.contvec.npz
       ref_file: examples/data/synth.words
       hyp_file: examples/output/{EXP}.forceddebug_hyp
