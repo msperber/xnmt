@@ -32,12 +32,6 @@ class Mask(object):
   def batch_size(self):
     return self.np_arr.shape[0]
 
-  def __len__(self):
-    return self.np_arr.shape[1]
- 
-  def batch_size(self):
-    return self.np_arr.shape[0]
-
   def reversed(self):
     return Mask(self.np_arr[:,::-1])
   
