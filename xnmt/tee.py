@@ -32,6 +32,7 @@ class YamlFormatter(logging.Formatter):
 sys_std_out = sys.stdout
 sys_std_err = sys.stderr
 logging.addLevelName(STD_OUTPUT_LEVELNO, "STD_OUTPUT")
+logging.raiseExceptions = False # ignore logging problems
 
 logger = logging.getLogger('xnmt')
 logger.setLevel(min(logging._checkLevel(settings.LOG_LEVEL_CONSOLE), logging._checkLevel(settings.LOG_LEVEL_FILE)))
