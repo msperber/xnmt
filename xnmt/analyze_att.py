@@ -11,7 +11,7 @@ import yaml
 
 from xnmt.vocab import Vocab
 
-vocab_file = "/Users/matthias/Desktop/en-de-es-fr.lc.no-numbers-punct.vocab"
+vocab_file = "/project/data-audio/tedlium-multi/parallel/vocab/en-de-es-fr.lc.no-numbers-punct.vocab"
 yaml_log_file = "/project/iwslt2015b/project/nmt-audio/exp-xnmt/03.audio2char/logs/exp165a.att.1.log.yaml"
 summarized_yaml_file = "/home/msperber/experiments/attention-heads/165.3.cossim.yaml"
 plot_file = ""
