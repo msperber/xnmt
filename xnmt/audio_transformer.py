@@ -1,4 +1,5 @@
 import logging
+from xnmt.embedder import PositionEmbedder
 yaml_logger = logging.getLogger('yaml')
 from collections.abc import Sequence
 import math
@@ -251,7 +252,7 @@ class MultiHeadedAttention(object):
     return ret
 
   @handle_xnmt_event
-  def on_new_epoch(self, training_regimen, num_sents):
+  def on_new_epoch(self, training_task, num_sents):
     yaml_logger.info({"key":"self_att_mask_var: ", "val":[float(x) for x in list(self.diag_gauss_mask_sigma.as_array().flat)], "desc":self.desc})
 
 class TransformerEncoderLayer(object):
@@ -318,8 +319,9 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
   def __init__(self, exp_global=Ref(Path("exp_global")), input_dim=512, layers=1, hidden_dim=512, 
                head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
-               ignore_masks=False, plot_attention=None,
-               nonlinearity="rectify", positional_encoding=False, positional_encoding_concat=0,
+               ignore_masks=False, plot_attention=None, nonlinearity="rectify",
+               positional_encoding=False, positional_encoding_concat=0,
+               positional_embedding=False,
                diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip",
                glorot_gain=None):
     register_handler(self)
@@ -334,6 +336,10 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
     self.positional_encoding_concat = positional_encoding_concat
     assert (not self.positional_encoding) or self.positional_encoding_concat==0
     self.position_encoding_block = None
+    self.positional_embedding = positional_embedding 
+    if positional_embedding:
+      self.positional_embedder = PositionEmbedder(max_pos=positional_embedding,
+                                                  exp_global=exp_global, emb_dim=input_dim)
     for layer_i in range(layers):
       if plot_attention is not None:
         plot_attention_layer = "{}.layer_{}".format(plot_attention, layer_i)
@@ -365,6 +371,8 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
       sent = ExpressionSequence(expr_tensor=dy.concatenate([sent.as_tensor(), 
                                                             dy.inputTensor(self.position_encoding_block[0, :, :len(sent)])]),
                                 mask=sent.mask)
+    if self.positional_embedding:
+      sent = ExpressionSequence(expr_tensor=sent.as_tensor() + self.positional_embedder.embed_sent(len(sent)).as_tensor(), mask=sent.mask)
     for module in self.modules:
       enc_sent = module.transduce(sent)
       self.last_output.append(module._recent_output)

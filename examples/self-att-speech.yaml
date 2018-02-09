@@ -1,7 +1,7 @@
 speech-self-att: !Experiment
   exp_global: !ExpGlobal
     model_file: examples/output/{EXP}.mod
-    out_file: examples/output/{EXP}.out
+    log_file: examples/output/{EXP}.log
     dropout: 0.5
   model: !DefaultTranslator
     src_reader: !ContVecReader
@@ -13,6 +13,7 @@ speech-self-att: !Experiment
     encoder: !ModularSeqTransducer
       modules:
       - !TransformerSeqTransducer
+        positional_embedding: 1500
         layers: 2
         input_dim: 240
         hidden_dim: 512

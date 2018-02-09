@@ -227,6 +227,38 @@ class SimpleWordEmbedder(Embedder, Serializable):
     self.last_output.append(ret)
     return ret
 
+class PositionEmbedder(Embedder, Serializable):
+
+  yaml_tag = '!PositionEmbedder'
+
+  def __init__(self, max_pos, exp_global=Ref(Path("exp_global")),
+               emb_dim=None, glorot_gain=None):
+    """
+    :param max_pos: largest embedded position (positions higher than this will default to the largest possible position)
+    :param emb_dim:
+    :param glorot_gain:
+    """
+    register_handler(self)
+    self.max_pos = max_pos
+    self.emb_dim = emb_dim or exp_global.default_layer_dim
+    param_collection = exp_global.dynet_param_collection.param_col
+    glorot_gain = glorot_gain or exp_global.glorot_gain 
+    init = dy.GlorotInitializer(is_lookup=True, gain=glorot_gain)
+    self.embeddings = param_collection.add_lookup_parameters((max_pos, self.emb_dim),
+                                                             init=init)
+
+  def embed_sent(self, sent_len):
+    embeddings = [self.embeddings[min(i, self.max_pos)] for i in range(sent_len)]
+    return ExpressionSequence(expr_list=embeddings, mask=None)
+
+  @handle_xnmt_event
+  def on_start_sent(self, src):
+    self.last_output = []
+    
+  @handle_xnmt_event
+  def on_collect_recent_outputs(self):
+    return [(self, self.last_output)]
+
 class NoopEmbedder(Embedder, Serializable):
   """
   This embedder performs no lookups but only passes through the inputs.
