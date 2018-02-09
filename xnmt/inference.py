@@ -23,9 +23,11 @@ NO_DECODING_ATTEMPTED = u"@@NO_DECODING_ATTEMPTED@@"
 
 class SimpleInference(Serializable):
   yaml_tag = u'!SimpleInference'
-  def __init__(self, model_file=None, src_file=None, trg_file=None, ref_file=None, max_src_len=None,
-                  input_format="text", post_process="none", report_path=None, report_type="html",
-                  beam=1, max_len=100, len_norm_type=None, mode="onebest", batcher=Ref(Path("train.batcher"), required=False)):
+  def __init__(self, model_file=None, src_file=None, trg_file=None, ref_file=None,
+               max_src_len=None, max_num_sents=None, input_format="text",
+               post_process="none", report_path=None, report_type="html", beam=1,
+               max_len=100, len_norm_type=None, mode="onebest",
+               batcher=Ref(Path("train.batcher"), required=False)):
     """
     :param model_file: pretrained (saved) model path (required onless model_elements is given)
     :param src_file: path of input src file to be translated
@@ -46,6 +48,7 @@ class SimpleInference(Serializable):
     self.trg_file = trg_file
     self.ref_file = ref_file
     self.max_src_len = max_src_len
+    self.max_num_sents = max_num_sents
     self.input_format = input_format
     self.post_process = post_process
     self.report_path = report_path
@@ -126,7 +129,7 @@ class SimpleInference(Serializable):
           src = src_ret.pop()[0]
 
         # Do the decoding
-        if args["max_src_len"] is not None and len(src) > args["max_src_len"]:
+        if (args["max_src_len"] is not None and len(src) > args["max_src_len"]) or (self.max_num_sents is not None and i>=self.max_num_sents):
           output_txt = NO_DECODING_ATTEMPTED
         else:
           dy.renew_cg(immediate_compute=settings.IMMEDIATE_COMPUTE, check_validity=settings.CHECK_VALIDITY)

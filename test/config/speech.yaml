@@ -43,6 +43,7 @@ speech-2layers: !Experiment
       - !LossEvalTask
         src_file: examples/data/synth.contvec.npz
         ref_file: examples/data/synth.char
+        max_num_sents: 2
       - !AccuracyEvalTask
         eval_metrics: cer,wer
         src_file: examples/data/synth.contvec.npz
@@ -50,6 +51,7 @@ speech-2layers: !Experiment
         hyp_file: examples/output/{EXP}.dev_hyp
         inference: !SimpleInference
           post_process: join-char
+          max_num_sents: 2
           report_path: examples/output/report.{EXP}
   evaluate:
     - !AccuracyEvalTask

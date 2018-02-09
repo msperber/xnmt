@@ -26,7 +26,7 @@ class LossEvalTask(Serializable):
   def __init__(self, src_file, ref_file, model=Ref(path=Path("model")),
                 batcher=Ref(path=Path("train.batcher"), required=False),
                 loss_calculator=None, max_src_len=None, max_trg_len=None,
-                desc=None):
+                max_num_sents=None, desc=None):
     self.model = model
     self.loss_calculator = loss_calculator or LossCalculator(MLELoss())
     self.src_file = src_file
@@ -35,6 +35,7 @@ class LossEvalTask(Serializable):
     self.src_data = None
     self.max_src_len = max_src_len
     self.max_trg_len = max_trg_len
+    self.max_num_sents = max_num_sents
     self.desc=desc
 
   def eval(self):
@@ -42,7 +43,8 @@ class LossEvalTask(Serializable):
       self.src_data, self.ref_data, self.src_batches, self.ref_batches = \
         xnmt.input.read_parallel_corpus(self.model.src_reader, self.model.trg_reader,
                                         self.src_file, self.ref_file, batcher=self.batcher,
-                                        max_src_len=self.max_src_len, max_trg_len=self.max_trg_len)
+                                        max_src_len=self.max_src_len, max_trg_len=self.max_trg_len,
+                                        max_num_sents=self.max_num_sents)
     loss_val = LossScalarBuilder()
     ref_words_cnt = 0
     for src, trg in zip(self.src_batches, self.ref_batches):
