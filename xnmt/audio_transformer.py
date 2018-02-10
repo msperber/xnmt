@@ -380,6 +380,9 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
     self._final_states = [FinalTransducerState(sent[-1])]
     return sent
 
+  def get_final_states(self):
+    return self._final_states
+
   @handle_xnmt_event
   def on_start_sent(self, src):
     self._final_states = None
