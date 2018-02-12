@@ -205,7 +205,9 @@ class PositionwiseFeedForward(object):
 
   def __call__(self, x, p):
     residual = x
-    output = dy.dropout(self.w_2(self.nonlinearity(self.w_1(x))), p)
+    output = self.w_2(self.nonlinearity(self.w_1(x)))
+    if p>0.0:
+      output = dy.dropout(output, p)
     return self.layer_norm(output + residual)
 
 class PositionwiseLinear(object):
