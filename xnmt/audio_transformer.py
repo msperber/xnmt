@@ -28,7 +28,7 @@ class MultiHeadedAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
                is_self_att=False, ignore_masks=False, plot_attention=None,
                diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip",
-               glorot_gain=1.0, desc=None):
+               pos_matrix=False, glorot_gain=1.0, desc=None):
     """
     :param head_count: number of self-att heads
     :param model_dim: 
@@ -85,6 +85,11 @@ class MultiHeadedAttention(object):
       if model_dim != input_dim * downsample_factor: self.res_shortcut = PositionwiseLinear(input_dim * downsample_factor, model_dim, model, glorot_gain=glorot_gain)
     else:
       if model_dim != input_dim: self.res_shortcut = PositionwiseLinear(input_dim, model_dim, model, glorot_gain=glorot_gain)
+    
+    if pos_matrix:
+      self.pos_matrix = model.add_parameters(dim=(1,1,70,self.dim_per_head*self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
+    else:
+      self.pos_matrix = None
  
   def plot_att_mat(self, mat, filename, dpi=1200):
     fig = plt.figure()
@@ -165,7 +170,37 @@ class MultiHeadedAttention(object):
       query_up = self.shape_projection(self.linear_query(TimeDistributed()(query)), batch_size)
 
 #     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
-    scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head)) # scale before the matrix multiplication to save memory
+    if self.pos_matrix:
+      left = dy.reshape(query_up, (sent_len,1), batch_size=self.dim_per_head*self.head_count*batch_size)
+      right = dy.reshape(query_up, (1,sent_len), batch_size=self.dim_per_head*self.head_count*batch_size)
+      m = dy.reshape(left * right, (sent_len * sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
+      #  0.. 9: |pos_i - pos_j|
+      # 10..19: max(pos_i - pos_j, 0)
+      # 20..29: max(pos_j - pos_i, 0)
+      # 30..39: pos_i
+      # 40..49: len-pos_i
+      # 50..59: pos_j
+      # 60..69: len-pos_j
+      map_fnc = lambda v: min(10,int(math.log2(1+v)))
+      indices_0 = [i for i in range(sent_len) for j in range(sent_len)] * 7
+      indices_1 = [i for i in range(sent_len) for j in range(sent_len)] * 7
+      indices_2 = [   map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
+                  [10+map_fnc(max(i-j, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+                  [20+map_fnc(max(j-i, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+                  [30+map_fnc(i)              for i in range(sent_len) for j in range(sent_len)] +\
+                  [40+map_fnc(sent_len-i)     for i in range(sent_len) for j in range(sent_len)] +\
+                  [50+map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
+                  [60+map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
+      values = [1.0] * (sent_len * sent_len * 7)
+      one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
+                                                 values,
+                                                 shape=(sent_len, sent_len, 70))
+      embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix),stride=(1,1))
+      embedded_pos_matrix = dy.reshape(embedded_pos_matrix, (sent_len*sent_len,self.dim_per_head,self.head_count),)
+      m2 = dy.cmult(m, embedded_pos_matrix)
+      scaled = dy.reshape(dy.sum_dim(m2, d=[1]), (sent_len, sent_len), batch_size=self.head_count*batch_size)
+    else:
+      scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head)) # scale before the matrix multiplication to save memory
 
     # Apply Mask here
     if not self.ignore_masks:
@@ -194,7 +229,7 @@ class MultiHeadedAttention(object):
         e_sigma_sq_inv = dy.cdiv(dy.ones(e_sigma.dim()[0], batch_size=batch_size), dy.square(e_sigma))
         e_diag_gauss_mask_final = dy.cmult(e_diag_gauss_mask, e_sigma_sq_inv)
         scaled += dy.reshape(e_diag_gauss_mask_final, (sent_len, sent_len), batch_size=batch_size * self.head_count)
-
+    
     # Computing Softmax here.
     attn = dy.softmax(scaled, d=1)
     if settings.LOG_ATTENTION:
@@ -259,13 +294,14 @@ class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
-               square_mask_std=False, downsampling_method="skip", glorot_gain=1.0,
-               desc=None):
+               square_mask_std=False, downsampling_method="skip", pos_matrix=False,
+               glorot_gain=1.0, desc=None):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
                                           input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
                                           plot_attention=plot_attention,
                                           diag_gauss_mask=diag_gauss_mask, square_mask_std=square_mask_std,
                                           downsampling_method=downsampling_method,
+                                          pos_matrix=pos_matrix,
                                           glorot_gain=glorot_gain,
                                           desc=desc)
     self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity,
@@ -321,7 +357,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
                ignore_masks=False, plot_attention=None, nonlinearity="rectify",
                positional_encoding=False, positional_encoding_concat=0,
-               positional_embedding=False,
+               positional_embedding=False, pos_matrix=False,
                diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip",
                glorot_gain=None):
     register_handler(self)
@@ -357,6 +393,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   diag_gauss_mask=diag_gauss_mask,
                                                   square_mask_std=square_mask_std,
                                                   downsampling_method=downsampling_method,
+                                                  pos_matrix=pos_matrix,
                                                   glorot_gain=glorot_gain[layer_i] if isinstance(glorot_gain,Sequence) else glorot_gain,
                                                   desc=f"layer_{layer_i}"))
 

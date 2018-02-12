@@ -26,6 +26,7 @@ speech-self-att: !Experiment
         positional_encoding_concat: 10
         diag_gauss_mask: rand
         downsampling_method: reshape
+        pos_matrix: True
       - !BiLSTMSeqTransducer
         layers: 1
     attender: !MlpAttender
