@@ -28,7 +28,7 @@ class MultiHeadedAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
                is_self_att=False, ignore_masks=False, plot_attention=None,
                diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip",
-               pos_matrix=False, glorot_gain=1.0, desc=None):
+               pos_matrix=False, double_pos_emb=False, glorot_gain=1.0, desc=None):
     """
     :param head_count: number of self-att heads
     :param model_dim: 
@@ -91,6 +91,11 @@ class MultiHeadedAttention(object):
       self.pos_matrix_p = model.add_parameters(dim=(1,1,70,self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
     elif pos_matrix:
       self.pos_matrix_p = model.add_parameters(dim=(1,1,70,self.dim_per_head*self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
+ 
+    self.double_pos_emb = double_pos_emb
+    if double_pos_emb:
+      self.double_pos_emb_p1 = model.add_parameters(dim=(double_pos_emb, self.dim_per_head, self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
+      self.double_pos_emb_p2 = model.add_parameters(dim=(double_pos_emb, self.dim_per_head, self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
  
   def plot_att_mat(self, mat, filename, dpi=1200):
     fig = plt.figure()
@@ -169,6 +174,16 @@ class MultiHeadedAttention(object):
       key_up = self.shape_projection(self.linear_keys(TimeDistributed()(key)), batch_size) 
       value_up = self.shape_projection(self.linear_values(TimeDistributed()(value)), batch_size)
       query_up = self.shape_projection(self.linear_query(TimeDistributed()(query)), batch_size)
+      
+    if self.double_pos_emb:
+      emb1 = dy.pick_range(dy.parameter(self.double_pos_emb_p1), 0,sent_len)
+      emb2 = dy.pick_range(dy.parameter(self.double_pos_emb_p2), 0,sent_len)
+      key_up = dy.reshape(key_up, (sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
+      key_up = dy.concatenate_cols([dy.cmult(key_up, emb1), dy.cmult(key_up, emb2)])
+      key_up = dy.reshape(key_up, (sent_len, self.dim_per_head*2), batch_size=self.head_count*batch_size)
+      query_up = dy.reshape(query_up, (sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
+      query_up = dy.concatenate_cols([dy.cmult(query_up, emb2), dy.cmult(query_up, emb1)])
+      query_up = dy.reshape(query_up, (sent_len, self.dim_per_head*2), batch_size=self.head_count*batch_size)
 
 #     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
     if self.pos_matrix=='shallow':
@@ -317,7 +332,7 @@ class TransformerEncoderLayer(object):
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
                square_mask_std=False, downsampling_method="skip", pos_matrix=False,
-               glorot_gain=1.0, desc=None):
+               double_pos_emb=False, glorot_gain=1.0, desc=None):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
                                           input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
                                           plot_attention=plot_attention,
@@ -325,6 +340,7 @@ class TransformerEncoderLayer(object):
                                           downsampling_method=downsampling_method,
                                           pos_matrix=pos_matrix,
                                           glorot_gain=glorot_gain,
+                                          double_pos_emb=double_pos_emb,
                                           desc=desc)
     self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity,
                                                 glorot_gain=glorot_gain)
@@ -381,7 +397,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                positional_encoding=False, positional_encoding_concat=0,
                positional_embedding=False, pos_matrix=False,
                diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip",
-               glorot_gain=None):
+               double_pos_emb=False, glorot_gain=None):
     register_handler(self)
     param_col = exp_global.dynet_param_collection.param_col
     glorot_gain = glorot_gain or exp_global.glorot_gain
@@ -416,6 +432,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   square_mask_std=square_mask_std,
                                                   downsampling_method=downsampling_method,
                                                   pos_matrix=pos_matrix,
+                                                  double_pos_emb=double_pos_emb,
                                                   glorot_gain=glorot_gain[layer_i] if isinstance(glorot_gain,Sequence) else glorot_gain,
                                                   desc=f"layer_{layer_i}"))
 
