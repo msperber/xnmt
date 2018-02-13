@@ -86,10 +86,11 @@ class MultiHeadedAttention(object):
     else:
       if model_dim != input_dim: self.res_shortcut = PositionwiseLinear(input_dim, model_dim, model, glorot_gain=glorot_gain)
     
-    if pos_matrix:
-      self.pos_matrix = model.add_parameters(dim=(1,1,70,self.dim_per_head*self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
-    else:
-      self.pos_matrix = None
+    self.pos_matrix = pos_matrix
+    if pos_matrix=='shallow':
+      self.pos_matrix_p = model.add_parameters(dim=(1,1,70,self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
+    elif pos_matrix:
+      self.pos_matrix_p = model.add_parameters(dim=(1,1,70,self.dim_per_head*self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
  
   def plot_att_mat(self, mat, filename, dpi=1200):
     fig = plt.figure()
@@ -170,7 +171,28 @@ class MultiHeadedAttention(object):
       query_up = self.shape_projection(self.linear_query(TimeDistributed()(query)), batch_size)
 
 #     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
-    if self.pos_matrix:
+    if self.pos_matrix=='shallow':
+      map_fnc = lambda v: min(10,int(math.log2(1+v)))
+      indices_0 = [i for i in range(sent_len) for j in range(sent_len)] * 7
+      indices_1 = [i for i in range(sent_len) for j in range(sent_len)] * 7
+      indices_2 = [   map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
+                  [10+map_fnc(max(i-j, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+                  [20+map_fnc(max(j-i, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+                  [30+map_fnc(i)              for i in range(sent_len) for j in range(sent_len)] +\
+                  [40+map_fnc(sent_len-i)     for i in range(sent_len) for j in range(sent_len)] +\
+                  [50+map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
+                  [60+map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
+      values = [1.0] * (sent_len * sent_len * 7)
+      one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
+                                                 values,
+                                                 shape=(sent_len, sent_len, 70))
+      embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix_p),stride=(1,1))
+      scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head))
+      scaled = dy.reshape(scaled, (sent_len, sent_len, self.head_count), batch_size=batch_size)
+      scaled = dy.cmult(scaled, embedded_pos_matrix)
+      scaled = dy.reshape(scaled, (sent_len, sent_len), batch_size=self.head_count*batch_size)
+    elif self.pos_matrix:
+      # this needs a crazy amount of memory and should probably be avoided
       left = dy.reshape(query_up, (sent_len,1), batch_size=self.dim_per_head*self.head_count*batch_size)
       right = dy.reshape(query_up, (1,sent_len), batch_size=self.dim_per_head*self.head_count*batch_size)
       m = dy.reshape(left * right, (sent_len * sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
@@ -195,7 +217,7 @@ class MultiHeadedAttention(object):
       one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
                                                  values,
                                                  shape=(sent_len, sent_len, 70))
-      embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix),stride=(1,1))
+      embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix_p),stride=(1,1))
       embedded_pos_matrix = dy.reshape(embedded_pos_matrix, (sent_len*sent_len,self.dim_per_head,self.head_count),)
       m2 = dy.cmult(m, embedded_pos_matrix)
       scaled = dy.reshape(dy.sum_dim(m2, d=[1]), (sent_len, sent_len), batch_size=self.head_count*batch_size)
