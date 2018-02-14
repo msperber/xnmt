@@ -95,8 +95,8 @@ class MultiHeadedAttention(object):
  
     self.double_pos_emb = double_pos_emb
     if double_pos_emb:
-      self.double_pos_emb_p1 = model.add_parameters(dim=(double_pos_emb, self.dim_per_head, self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
-      self.double_pos_emb_p2 = model.add_parameters(dim=(double_pos_emb, self.dim_per_head, self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
+      self.double_pos_emb_p1 = model.add_parameters(dim=(double_pos_emb, self.dim_per_head, self.head_count), init=dy.NormalInitializer(mean=1.0, var=0.001))
+      self.double_pos_emb_p2 = model.add_parameters(dim=(double_pos_emb, self.dim_per_head, self.head_count), init=dy.NormalInitializer(mean=1.0, var=0.001))
  
   def plot_att_mat(self, mat, filename, dpi=1200):
     fig = plt.figure()
