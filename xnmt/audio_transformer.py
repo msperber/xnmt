@@ -188,8 +188,19 @@ class MultiHeadedAttention(object):
 
 #     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
     if self.pos_matrix=='shallow':
-      print("enter")
-      map_fnc = lambda v: min(10,int(math.log2(1+v)))
+      def map_fnc(v):
+        if v<1: return 0
+        elif v<2: return 1
+        elif v<4: return 2
+        elif v<8: return 3
+        elif v<16: return 4
+        elif v<32: return 5
+        elif v<64: return 6
+        elif v<128: return 7
+        elif v<256: return 8
+        else: return 9
+      #map_fnc = lambda v: min(10,int(math.log2(1+v)))
+      # TODO: this is apparently very slow and needs to be re-designed
       indices_0 = [i for i in range(sent_len) for j in range(sent_len)] * 7
       indices_1 = [i for i in range(sent_len) for j in range(sent_len)] * 7
       indices_2 = [   map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
@@ -200,17 +211,15 @@ class MultiHeadedAttention(object):
                   [50+map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
                   [60+map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
       values = [1.0] * (sent_len * sent_len * 7)
-      print("mid")
-      one_hot_pos_matrix = dy.ones((sent_len, sent_len, 70))
-      #one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
-      #                                           values,
-      #                                           shape=(sent_len, sent_len, 70))
+      #one_hot_pos_matrix = dy.ones((sent_len, sent_len, 70))
+      one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
+                                                 values,
+                                                 shape=(sent_len, sent_len, 70))
       embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix_p),stride=(1,1))
       scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head))
       scaled = dy.reshape(scaled, (sent_len, sent_len, self.head_count), batch_size=batch_size)
       scaled = scaled + embedded_pos_matrix
       scaled = dy.reshape(scaled, (sent_len, sent_len), batch_size=self.head_count*batch_size)
-      print("leave")
     elif self.pos_matrix:
       # this needs a crazy amount of memory and should probably be avoided
       left = dy.reshape(query_up, (sent_len,1), batch_size=self.dim_per_head*self.head_count*batch_size)
