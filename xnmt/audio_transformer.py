@@ -204,7 +204,7 @@ class MultiHeadedAttention(object):
       embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix_p),stride=(1,1))
       scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head))
       scaled = dy.reshape(scaled, (sent_len, sent_len, self.head_count), batch_size=batch_size)
-      scaled = dy.cmult(scaled, embedded_pos_matrix)
+      scaled = scaled + embedded_pos_matrix
       scaled = dy.reshape(scaled, (sent_len, sent_len), batch_size=self.head_count*batch_size)
     elif self.pos_matrix:
       # this needs a crazy amount of memory and should probably be avoided
