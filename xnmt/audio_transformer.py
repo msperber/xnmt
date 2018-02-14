@@ -480,7 +480,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
         sent = ExpressionSequence(expr_tensor=dy.concatenate([sent.as_tensor(), encoding]),
                                   mask=sent.mask)
       
-    else:
+    elif self.pos_encoding_type:
       raise ValueError(f"unknown encoding type {self.pos_encoding_type}")
     for module in self.modules:
       enc_sent = module.transduce(sent)
