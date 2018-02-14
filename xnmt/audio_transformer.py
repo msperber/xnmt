@@ -182,7 +182,7 @@ class MultiHeadedAttention(object):
       key_up = dy.concatenate_cols([dy.cmult(key_up, emb1), dy.cmult(key_up, emb2)])
       key_up = dy.reshape(key_up, (sent_len, self.dim_per_head*2), batch_size=self.head_count*batch_size)
       query_up = dy.reshape(query_up, (sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
-      query_up = dy.concatenate_cols([dy.cmult(query_up, emb2), dy.cmult(query_up, emb1)])
+      query_up = dy.concatenate_cols([dy.cmult(query_up, emb2), dy.cmult(query_up, -emb1)])
       query_up = dy.reshape(query_up, (sent_len, self.dim_per_head*2), batch_size=self.head_count*batch_size)
 
 #     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
