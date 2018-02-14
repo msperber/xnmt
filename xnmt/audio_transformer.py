@@ -15,7 +15,7 @@ import dynet as dy
 from simple_settings import settings
 
 from xnmt.expression_sequence import ExpressionSequence
-from xnmt.nn import LayerNorm, Linear, PositionwiseFeedForward, TimeDistributed, PositionwiseLinear
+from xnmt.nn import LayerNorm, Linear, PositionwiseFeedForward, TimeDistributed, PositionwiseLinear, PositionwiseConv
 from xnmt.transducer import SeqTransducer, FinalTransducerState
 from xnmt.serialize.serializable import Serializable
 from xnmt.serialize.tree_tools import Ref, Path
@@ -332,7 +332,7 @@ class TransformerEncoderLayer(object):
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
                square_mask_std=False, downsampling_method="skip", pos_matrix=False,
-               double_pos_emb=False, glorot_gain=1.0, desc=None):
+               double_pos_emb=False, ff_window=1, glorot_gain=1.0, desc=None):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
                                           input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
                                           plot_attention=plot_attention,
@@ -342,7 +342,12 @@ class TransformerEncoderLayer(object):
                                           glorot_gain=glorot_gain,
                                           double_pos_emb=double_pos_emb,
                                           desc=desc)
-    self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity,
+    self.ff_window = ff_window
+    if ff_window==1:
+      self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity,
+                                                glorot_gain=glorot_gain)
+    else:
+      self.feed_forward = PositionwiseConv(hidden_dim, ff_hidden_dim, ff_window, model, nonlinearity=nonlinearity,
                                                 glorot_gain=glorot_gain)
     self.head_count = head_count
     self.downsample_factor = downsample_factor
@@ -376,7 +381,13 @@ class TransformerEncoderLayer(object):
     mid = self.self_attn(key=x, value=None, query=None, att_mask=att_mask, batch_mask=x.mask.np_arr if x.mask else None, p=self.dropout)
     if self.downsample_factor > 1:
       seq_len = int(math.ceil(seq_len / float(self.downsample_factor)))
-    out = self.feed_forward(mid, p=self.dropout)
+    if self.ff_window > 1:
+      hidden_dim = mid.dim()[0][0]
+      mid = dy.reshape(mid, (hidden_dim, seq_len), batch_size=batch_size)
+      out = self.feed_forward(mid, p=self.dropout)
+      out = dy.reshape(out, (hidden_dim,), batch_size=seq_len * batch_size)
+    else:
+      out = self.feed_forward(mid, p=self.dropout)
 
     out_mask = x.mask
     if self.downsample_factor > 1 and out_mask is not None:
@@ -397,7 +408,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                positional_encoding=False, positional_encoding_concat=0,
                positional_embedding=False, pos_matrix=False,
                diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip",
-               double_pos_emb=False, glorot_gain=None):
+               double_pos_emb=False, ff_window=1, glorot_gain=None):
     register_handler(self)
     param_col = exp_global.dynet_param_collection.param_col
     glorot_gain = glorot_gain or exp_global.glorot_gain
@@ -433,6 +444,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   downsampling_method=downsampling_method,
                                                   pos_matrix=pos_matrix,
                                                   double_pos_emb=double_pos_emb,
+                                                  ff_window=ff_window,
                                                   glorot_gain=glorot_gain[layer_i] if isinstance(glorot_gain,Sequence) else glorot_gain,
                                                   desc=f"layer_{layer_i}"))
 

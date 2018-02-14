@@ -210,6 +210,38 @@ class PositionwiseFeedForward(object):
       output = dy.dropout(output, p)
     return self.layer_norm(output + residual)
 
+class PositionwiseConv(object):
+  def __init__(self, input_dim, hidden_dim, window_w, model, nonlinearity="rectify", glorot_gain=1.0):
+    """
+    Args:
+        input_dim(int): the size of input for the first-layer of the FFN.
+        hidden_dim(int): the hidden layer size of the second-layer
+                          of the FNN.
+    """
+    self.filters1 = model.add_parameters((1, window_w, input_dim, hidden_dim), init=dy.GlorotInitializer(gain=glorot_gain))
+    self.bias1 = model.add_parameters((hidden_dim,), init=dy.ConstInitializer(0.0))
+    self.filters2 = model.add_parameters((1, window_w, hidden_dim, input_dim), init=dy.GlorotInitializer(gain=glorot_gain))
+    self.bias2 = model.add_parameters((input_dim,), init=dy.ConstInitializer(0.0))
+    self.layer_norm = LayerNorm(input_dim, model)
+    self.nonlinearity = getattr(dy,nonlinearity)
+
+  def __call__(self, x, p):
+    hidden_dim = x.dim()[0][0]
+    seq_len = x.dim()[0][1]
+    batch_size = x.dim()[1]
+    residual = x
+    x = dy.transpose(x)
+    x = dy.reshape(x, (1, seq_len, hidden_dim), batch_size=batch_size)
+    # TODO: this produces a large channel size which does not seem right..
+    output = dy.conv2d_bias(x, dy.parameter(self.filters1), dy.parameter(self.bias1), stride=(1,1), is_valid=False)
+    output = self.nonlinearity(output)
+    output = dy.conv2d_bias(x, dy.parameter(self.filters2), dy.parameter(self.bias2), stride=(1,1), is_valid=False)
+    output = dy.reshape(output, (seq_len, hidden_dim), batch_size=batch_size)
+    output = dy.transpose(output)
+    if p>0.0:
+      output = dy.dropout(output, p)
+    return self.layer_norm(output + residual)
+
 class PositionwiseLinear(object):
   def __init__(self, input_dim, hidden_dim, model, glorot_gain=1.0):
     """

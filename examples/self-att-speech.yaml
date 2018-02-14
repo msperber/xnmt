@@ -28,6 +28,7 @@ speech-self-att: !Experiment
         downsampling_method: reshape
         #pos_matrix: shallow
         double_pos_emb: 1500
+        ff_window: 3
       - !BiLSTMSeqTransducer
         layers: 1
     attender: !MlpAttender
