@@ -28,7 +28,7 @@ speech-self-att: !Experiment
         max_len: 1500
         diag_gauss_mask: rand
         downsampling_method: reshape
-        #pos_matrix: shallow
+        pos_matrix: shallow
         double_pos_emb: 1500
         ff_window: 3
       - !BiLSTMSeqTransducer

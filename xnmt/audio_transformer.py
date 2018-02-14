@@ -199,9 +199,10 @@ class MultiHeadedAttention(object):
                   [50+map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
                   [60+map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
       values = [1.0] * (sent_len * sent_len * 7)
-      one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
-                                                 values,
-                                                 shape=(sent_len, sent_len, 70))
+      one_hot_pos_matrix = dy.ones((sent_len, sent_len, 70))
+      #one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
+      #                                           values,
+      #                                           shape=(sent_len, sent_len, 70))
       embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix_p),stride=(1,1))
       scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head))
       scaled = dy.reshape(scaled, (sent_len, sent_len, self.head_count), batch_size=batch_size)
