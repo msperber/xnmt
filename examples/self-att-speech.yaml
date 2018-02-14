@@ -15,24 +15,27 @@ speech-self-att: !Experiment
       - !TransformerSeqTransducer
         layers: 2
         input_dim: 240
-        hidden_dim: 512
-        ff_hidden_dim: 512
+        hidden_dim: 512 #256
         downsample_factor: 2
-        diagonal_mask_width: ~
-        mask_self: True
-        ignore_masks: False
-        plot_attention: ~ #examples/output/{EXP}.self-att
-        pos_encoding_type: mlp
-        pos_encoding_combine: add
-        pos_encoding_size: 40
-        max_len: 1500
-        diag_gauss_mask: rand
+        mask_self: False
+        ff_hidden_dim: 256
         downsampling_method: reshape
+        ignore_masks: True
+        #positional_embedding: 1500
+        #diag_gauss_mask: 3
         pos_matrix: shallow
-        double_pos_emb: 1500
-        ff_window: 3
-      - !BiLSTMSeqTransducer
+      - !TransformerSeqTransducer
         layers: 1
+        input_dim: 512
+        hidden_dim: 512 #256
+        downsample_factor: 1
+        mask_self: False
+        ff_hidden_dim: 256
+        downsampling_method: reshape
+        ignore_masks: True
+        #positional_encoding_concat: 40
+        #diag_gauss_mask: 3
+        pos_matrix: shallow
     attender: !MlpAttender
       state_dim: 64
       hidden_dim: 64

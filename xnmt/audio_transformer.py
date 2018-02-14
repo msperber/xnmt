@@ -419,7 +419,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
     register_handler(self)
     param_col = exp_global.dynet_param_collection.param_col
     glorot_gain = glorot_gain or exp_global.glorot_gain
-    self.input_dim = input_dim = (input_dim + (pos_encoding_size if pos_encoding_combine=="concat" else 0))
+    self.input_dim = input_dim = (input_dim + (pos_encoding_size if (pos_encoding_type and pos_encoding_combine=="concat") else 0))
     self.hidden_dim = hidden_dim
     self.dropout = dropout or exp_global.dropout
     self.layers = layers
