@@ -15,6 +15,7 @@ import dynet as dy
 from simple_settings import settings
 
 from xnmt.expression_sequence import ExpressionSequence
+from xnmt.mlp import MLP
 from xnmt.nn import LayerNorm, Linear, PositionwiseFeedForward, TimeDistributed, PositionwiseLinear, PositionwiseConv
 from xnmt.transducer import SeqTransducer, FinalTransducerState
 from xnmt.serialize.serializable import Serializable
@@ -405,26 +406,38 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                head_count=8, ff_hidden_dim=2048, dropout=None, 
                downsample_factor=1, diagonal_mask_width=None, mask_self=False,
                ignore_masks=False, plot_attention=None, nonlinearity="rectify",
-               positional_encoding=False, positional_encoding_concat=0,
-               positional_embedding=False, pos_matrix=False,
-               diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip",
-               double_pos_emb=False, ff_window=1, glorot_gain=None):
+               pos_encoding_type=None, pos_encoding_combine="concat",
+               pos_encoding_size=40, max_len=1500,
+               pos_matrix=False, diag_gauss_mask=False, square_mask_std=False,
+               downsampling_method="skip", double_pos_emb=False, ff_window=1,
+               glorot_gain=None):
+    """
+    :param pos_encoding_type: None, trigonometric, embedding, mlp
+    :param pos_encoding_combine: add, concat
+    """
     register_handler(self)
     param_col = exp_global.dynet_param_collection.param_col
     glorot_gain = glorot_gain or exp_global.glorot_gain
-    self.input_dim = input_dim = input_dim + positional_encoding_concat
+    self.input_dim = input_dim = (input_dim + (pos_encoding_size if pos_encoding_combine=="concat" else 0))
     self.hidden_dim = hidden_dim
     self.dropout = dropout or exp_global.dropout
     self.layers = layers
     self.modules = []
-    self.positional_encoding = positional_encoding
-    self.positional_encoding_concat = positional_encoding_concat
-    assert (not self.positional_encoding) or self.positional_encoding_concat==0
+    self.pos_encoding_type = pos_encoding_type
+    self.pos_encoding_combine = pos_encoding_combine
+    self.pos_encoding_size = pos_encoding_size
+    self.max_len = max_len
     self.position_encoding_block = None
-    self.positional_embedding = positional_embedding 
-    if positional_embedding:
-      self.positional_embedder = PositionEmbedder(max_pos=positional_embedding,
-                                                  exp_global=exp_global, emb_dim=input_dim)
+    if self.pos_encoding_type=="embedding":
+      self.positional_embedder = PositionEmbedder(max_pos=self.max_len,
+                                                  exp_global=exp_global,
+                                                  emb_dim=input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size)
+    elif self.pos_encoding_type=="mlp":
+      self.positional_mlp = MLP(input_dim=2,
+                                hidden_dim=input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size,
+                                output_dim=input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size,
+                                model=param_col,
+                                layers=2)
     for layer_i in range(layers):
       if plot_attention is not None:
         plot_attention_layer = "{}.layer_{}".format(plot_attention, layer_i)
@@ -449,18 +462,25 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   desc=f"layer_{layer_i}"))
 
   def __call__(self, sent):
-    if self.positional_encoding:
+    if self.pos_encoding_type == "trigonometric":
       if self.position_encoding_block is None or self.position_encoding_block.shape[2] < len(sent):
-        self.initialize_position_encoding(int(len(sent) * 1.2), self.input_dim)
-      sent = ExpressionSequence(expr_tensor=sent.as_tensor() + dy.inputTensor(self.position_encoding_block[0, :, :len(sent)]), mask=sent.mask)
-    if self.positional_encoding_concat > 0:
-      if self.position_encoding_block is None or self.position_encoding_block.shape[2] < len(sent):
-        self.initialize_position_encoding(int(len(sent) * 1.2), self.positional_encoding_concat)
-      sent = ExpressionSequence(expr_tensor=dy.concatenate([sent.as_tensor(), 
-                                                            dy.inputTensor(self.position_encoding_block[0, :, :len(sent)])]),
-                                mask=sent.mask)
-    if self.positional_embedding:
-      sent = ExpressionSequence(expr_tensor=sent.as_tensor() + self.positional_embedder.embed_sent(len(sent)).as_tensor(), mask=sent.mask)
+        self.initialize_position_encoding(int(len(sent) * 1.2), self.input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size)
+      encoding = dy.inputTensor(self.position_encoding_block[0, :, :len(sent)])
+    elif self.pos_encoding_type == "embedding":
+      encoding = self.positional_embedder.embed_sent(len(sent)).as_tensor()
+    elif self.pos_encoding_type == "mlp":
+      inp = dy.inputTensor(np.asarray([[i/1000.0  for i in range(len(sent))],[(len(sent)-i)/1000.0 for i in range(len(sent))]] ), batched=True)
+      mlp_out = self.positional_mlp(inp)
+      encoding = dy.reshape(mlp_out, (self.input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size, len(sent)))
+    if self.pos_encoding_type:
+      if self.pos_encoding_combine=="add":
+        sent = ExpressionSequence(expr_tensor=sent.as_tensor() + encoding, mask=sent.mask)
+      else: # concat
+        sent = ExpressionSequence(expr_tensor=dy.concatenate([sent.as_tensor(), encoding]),
+                                  mask=sent.mask)
+      
+    else:
+      raise ValueError(f"unknown encoding type {self.pos_encoding_type}")
     for module in self.modules:
       enc_sent = module.transduce(sent)
       self.last_output.append(module._recent_output)
