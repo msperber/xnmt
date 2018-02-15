@@ -1,5 +1,4 @@
 import logging
-from xnmt.embedder import PositionEmbedder
 yaml_logger = logging.getLogger('yaml')
 from collections.abc import Sequence
 import math
@@ -14,13 +13,15 @@ import dynet as dy
 
 from simple_settings import settings
 
+from xnmt.embedder import PositionEmbedder
 from xnmt.expression_sequence import ExpressionSequence
+from xnmt.events import register_handler, handle_xnmt_event
+from xnmt.lstm import BiLSTMSeqTransducer
 from xnmt.mlp import MLP
 from xnmt.nn import LayerNorm, Linear, PositionwiseFeedForward, TimeDistributed, PositionwiseLinear, PositionwiseConv
 from xnmt.transducer import SeqTransducer, FinalTransducerState
 from xnmt.serialize.serializable import Serializable
 from xnmt.serialize.tree_tools import Ref, Path
-from xnmt.events import register_handler, handle_xnmt_event
 
 class MultiHeadedSelfAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
@@ -331,12 +332,13 @@ class MultiHeadedSelfAttention(object):
     yaml_logger.info({"key":"self_att_mask_var: ", "val":[float(x) for x in list(self.diag_gauss_mask_sigma.as_array().flat)], "desc":self.desc})
 
 class TransformerEncoderLayer(object):
-  def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
+  def __init__(self, hidden_dim, exp_global, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
-               square_mask_std=False, pos_matrix=False, double_pos_emb=False, ff_window=1, 
-               kq_pos_encoding_type=None, kq_pos_encoding_size=40, max_len=1500, glorot_gain=1.0,
-               desc=None):
+               square_mask_std=False, pos_matrix=False, double_pos_emb=False, ff_window=1,
+               ff_lstm=False, kq_pos_encoding_type=None, kq_pos_encoding_size=40, max_len=1500,
+               glorot_gain=1.0, dropout=None, desc=None):
+    model = exp_global.dynet_param_collection.param_col
     self.self_attn = MultiHeadedSelfAttention(head_count, hidden_dim, model, downsample_factor, 
                                               input_dim=input_dim, ignore_masks=ignore_masks, 
                                               plot_attention=plot_attention,
@@ -349,7 +351,12 @@ class TransformerEncoderLayer(object):
                                               max_len=max_len,
                                               desc=desc)
     self.ff_window = ff_window
-    if ff_window==1:
+    self.ff_lstm = ff_lstm
+    if ff_lstm:
+      self.feed_forward = BiLSTMSeqTransducer(exp_global, layers=1, input_dim=hidden_dim,
+                                              hidden_dim=hidden_dim, dropout=dropout,
+                                              glorot_gain=glorot_gain)
+    elif ff_window==1:
       self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity,
                                                 glorot_gain=glorot_gain)
     else:
@@ -386,17 +393,21 @@ class TransformerEncoderLayer(object):
     mid = self.self_attn(x=x, att_mask=att_mask, batch_mask=x.mask.np_arr if x.mask else None, p=self.dropout)
     if self.downsample_factor > 1:
       seq_len = int(math.ceil(seq_len / float(self.downsample_factor)))
-    if self.ff_window > 1:
-      hidden_dim = mid.dim()[0][0]
+    hidden_dim = mid.dim()[0][0]
+    out_mask = x.mask
+    if self.downsample_factor > 1 and out_mask is not None:
+      out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
+    if self.ff_lstm:
+      mid_re = dy.reshape(mid, (hidden_dim, seq_len), batch_size=batch_size)
+      out = self.feed_forward(ExpressionSequence(expr_tensor=mid_re, mask=out_mask))
+      out = dy.reshape(out.as_tensor(), (hidden_dim,), batch_size=seq_len*batch_size)
+    elif self.ff_window > 1:
       mid = dy.reshape(mid, (hidden_dim, seq_len), batch_size=batch_size)
       out = self.feed_forward(mid, p=self.dropout)
       out = dy.reshape(out, (hidden_dim,), batch_size=seq_len * batch_size)
     else:
       out = self.feed_forward(mid, p=self.dropout)
 
-    out_mask = x.mask
-    if self.downsample_factor > 1 and out_mask is not None:
-      out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
     
     self._recent_output = out
     return ExpressionSequence(expr_tensor=dy.reshape(out, (out.dim()[0][0], seq_len), batch_size=batch_size), mask=out_mask)
@@ -414,10 +425,10 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                pos_encoding_size=40, max_len=1500,
                pos_matrix=False, diag_gauss_mask=False, square_mask_std=False,
                downsampling_method="reshape", double_pos_emb=False, ff_window=1,
-               kq_pos_encoding_type=None, kq_pos_encoding_size=40, 
+               ff_lstm=False, kq_pos_encoding_type=None, kq_pos_encoding_size=40, 
                glorot_gain=None):
     """
-    :param pos_encoding_type: None, trigonometric, embedding, mlp
+    :param pos_encoding_type: None, trigonometric, embedding, mlp, feat-embedding
     :param pos_encoding_combine: add, concat
     """
     register_handler(self)
@@ -449,7 +460,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
         plot_attention_layer = "{}.layer_{}".format(plot_attention, layer_i)
       else:
         plot_attention_layer = None
-      self.modules.append(TransformerEncoderLayer(hidden_dim, param_col, 
+      self.modules.append(TransformerEncoderLayer(hidden_dim, exp_global=exp_global, 
                                                   downsample_factor=downsample_factor, 
                                                   input_dim=input_dim if layer_i==0 else hidden_dim,
                                                   head_count=head_count, ff_hidden_dim=ff_hidden_dim,
@@ -462,10 +473,12 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   square_mask_std=square_mask_std,
                                                   pos_matrix=pos_matrix,
                                                   double_pos_emb=double_pos_emb,
+                                                  ff_lstm=ff_lstm,
                                                   ff_window=ff_window,
                                                   max_len=self.max_len,
                                                   kq_pos_encoding_type=kq_pos_encoding_type,
                                                   kq_pos_encoding_size=kq_pos_encoding_size, 
+                                                  dropout=dropout,
                                                   glorot_gain=glorot_gain[layer_i] if isinstance(glorot_gain,Sequence) else glorot_gain,
                                                   desc=f"layer_{layer_i}"))
 
