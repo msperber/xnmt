@@ -28,7 +28,7 @@ MIN_VAL = -10000   # This value is close to NEG INFINITY
 class MultiHeadedAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
                is_self_att=False, ignore_masks=False, plot_attention=None,
-               diag_gauss_mask=False, square_mask_std=False, downsampling_method="skip",
+               diag_gauss_mask=False, square_mask_std=False, 
                pos_matrix=False, double_pos_emb=False, glorot_gain=1.0, desc=None):
     """
     :param head_count: number of self-att heads
@@ -52,7 +52,6 @@ class MultiHeadedAttention(object):
     self.head_count = head_count
     assert downsample_factor >= 1
     self.downsample_factor = downsample_factor
-    self.downsampling_method = downsampling_method
     self.plot_attention = plot_attention
     self.plot_attention_counter = 0
     self.desc = desc
@@ -64,13 +63,13 @@ class MultiHeadedAttention(object):
     self.is_self_att = is_self_att
     
     if is_self_att:
-      self.linear_kvq = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor,
+      self.linear_kvq = Linear(input_dim * downsample_factor,
                                head_count * self.dim_per_head * 3, model, glorot_gain=glorot_gain)
       
     else:
-      self.linear_keys = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
-      self.linear_values = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
-      self.linear_query = Linear(input_dim if self.downsampling_method!="reshape" else input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
+      self.linear_keys = Linear(input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
+      self.linear_values = Linear(input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
+      self.linear_query = Linear(input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
     
     if self.diag_gauss_mask:
       if self.diag_gauss_mask=="rand":
@@ -82,10 +81,7 @@ class MultiHeadedAttention(object):
     # Layer Norm Module
     self.layer_norm = LayerNorm(model_dim, model)
     
-    if self.downsampling_method=="reshape":
-      if model_dim != input_dim * downsample_factor: self.res_shortcut = PositionwiseLinear(input_dim * downsample_factor, model_dim, model, glorot_gain=glorot_gain)
-    else:
-      if model_dim != input_dim: self.res_shortcut = PositionwiseLinear(input_dim, model_dim, model, glorot_gain=glorot_gain)
+    if model_dim != input_dim * downsample_factor: self.res_shortcut = PositionwiseLinear(input_dim * downsample_factor, model_dim, model, glorot_gain=glorot_gain)
     
     self.pos_matrix = pos_matrix
     if pos_matrix=='shallow':
@@ -129,41 +125,30 @@ class MultiHeadedAttention(object):
     batch_size = key[0].dim()[1]
 
     if self.downsample_factor > 1:
-      if self.downsampling_method == "skip":
-        query_tensor = query.as_tensor() if query else key.as_tensor()
-        strided_query = ExpressionSequence(expr_tensor=dy.strided_select(query_tensor, [1,self.downsample_factor], [], []))
-        residual = TimeDistributed()(strided_query)
-        sent_len_out = len(strided_query)
-      else:
-        assert self.downsampling_method == "reshape"
-        if sent_len % self.downsample_factor != 0:
-          raise ValueError("For 'reshape' downsampling, sequence lengths must be multiples of the downsampling factor. Configure batcher accordingly.")
-        if batch_mask is not None: batch_mask = batch_mask[:,::self.downsample_factor]
-        sent_len_out = sent_len // self.downsample_factor
-        sent_len = sent_len_out
-        out_mask = key.mask
-        if self.downsample_factor > 1 and out_mask is not None:
-          out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
+      if sent_len % self.downsample_factor != 0:
+        raise ValueError("For 'reshape' downsampling, sequence lengths must be multiples of the downsampling factor. Configure batcher accordingly.")
+      if batch_mask is not None: batch_mask = batch_mask[:,::self.downsample_factor]
+      sent_len_out = sent_len // self.downsample_factor
+      sent_len = sent_len_out
+      out_mask = key.mask
+      if self.downsample_factor > 1 and out_mask is not None:
+        out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
 
-        if query:
-          query = ExpressionSequence(expr_tensor=dy.reshape(query.as_tensor(), (query.dim()[0][0] * self.downsample_factor, query.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
-                                     mask=out_mask)
-        if key:
-          key = ExpressionSequence(expr_tensor=dy.reshape(key.as_tensor(), (key.dim()[0][0] * self.downsample_factor, key.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
+      if query:
+        query = ExpressionSequence(expr_tensor=dy.reshape(query.as_tensor(), (query.dim()[0][0] * self.downsample_factor, query.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
                                    mask=out_mask)
-        if value:
-          value = ExpressionSequence(expr_tensor=dy.reshape(value.as_tensor(), (value.dim()[0][0] * self.downsample_factor, value.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
-                                     mask=out_mask)
-        residual = TimeDistributed()(query or key)
+      if key:
+        key = ExpressionSequence(expr_tensor=dy.reshape(key.as_tensor(), (key.dim()[0][0] * self.downsample_factor, key.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
+                                 mask=out_mask)
+      if value:
+        value = ExpressionSequence(expr_tensor=dy.reshape(value.as_tensor(), (value.dim()[0][0] * self.downsample_factor, value.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
+                                   mask=out_mask)
+      residual = TimeDistributed()(query or key)
     else:
       residual = TimeDistributed()(query or key)
       sent_len_out = sent_len
-    if self.downsampling_method=="reshape":
-      if self.model_dim!=self.input_dim*self.downsample_factor:
-        residual = self.res_shortcut(residual)
-    else:
-      if self.model_dim!=self.input_dim:
-        residual = self.res_shortcut(residual)
+    if self.model_dim!=self.input_dim*self.downsample_factor:
+      residual = self.res_shortcut(residual)
       
     # Concatenate all the words together for doing vectorized affine transform
     if self.is_self_att:
@@ -257,7 +242,7 @@ class MultiHeadedAttention(object):
     if not self.ignore_masks:
       if att_mask is not None:
         att_mask_inp = att_mask * -100.0
-        if self.downsampling_method=="reshape" and self.downsample_factor>1:
+        if self.downsample_factor>1:
           att_mask_inp = att_mask_inp[::self.downsample_factor,::self.downsample_factor]
         scaled += dy.inputTensor(att_mask_inp)
       if batch_mask is not None:
@@ -296,10 +281,6 @@ class MultiHeadedAttention(object):
     # Computing weighted attention score
     attn_prod = drop_attn * value_up
     
-    if self.downsample_factor > 1 and self.downsampling_method == "skip":
-      attn_prod = dy.strided_select(attn_prod, [self.downsample_factor], [], [])
-    
-
     # Reshaping the attn_prod to input query dimensions
     out = dy.reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), batch_size=batch_size)
     out = dy.transpose(out)
@@ -345,13 +326,12 @@ class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
-               square_mask_std=False, downsampling_method="skip", pos_matrix=False,
+               square_mask_std=False, pos_matrix=False,
                double_pos_emb=False, ff_window=1, glorot_gain=1.0, desc=None):
     self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
                                           input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
                                           plot_attention=plot_attention,
                                           diag_gauss_mask=diag_gauss_mask, square_mask_std=square_mask_std,
-                                          downsampling_method=downsampling_method,
                                           pos_matrix=pos_matrix,
                                           glorot_gain=glorot_gain,
                                           double_pos_emb=double_pos_emb,
@@ -422,7 +402,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                pos_encoding_type=None, pos_encoding_combine="concat",
                pos_encoding_size=40, max_len=1500,
                pos_matrix=False, diag_gauss_mask=False, square_mask_std=False,
-               downsampling_method="skip", double_pos_emb=False, ff_window=1,
+               downsampling_method="reshape", double_pos_emb=False, ff_window=1,
                glorot_gain=None):
     """
     :param pos_encoding_type: None, trigonometric, embedding, mlp
@@ -441,6 +421,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
     self.pos_encoding_size = pos_encoding_size
     self.max_len = max_len
     self.position_encoding_block = None
+    assert downsampling_method=="reshape", f"downsampling methods are than 'reshape' no longer supported, received: {downsampling_method}"
     if self.pos_encoding_type=="embedding":
       self.positional_embedder = PositionEmbedder(max_pos=self.max_len,
                                                   exp_global=exp_global,
@@ -467,7 +448,6 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   nonlinearity=nonlinearity,
                                                   diag_gauss_mask=diag_gauss_mask,
                                                   square_mask_std=square_mask_std,
-                                                  downsampling_method=downsampling_method,
                                                   pos_matrix=pos_matrix,
                                                   double_pos_emb=double_pos_emb,
                                                   ff_window=ff_window,
