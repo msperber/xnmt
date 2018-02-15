@@ -446,11 +446,11 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   exp_global=exp_global,
                                                   emb_dim=input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size)
     elif self.pos_encoding_type=="mlp":
-      self.positional_mlp = MLP(input_dim=2,
+      self.positional_mlp = MLP(input_dim=3,
                                 hidden_dim=input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size,
                                 output_dim=input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size,
                                 model=param_col,
-                                layers=2)
+                                layers=1)
     for layer_i in range(layers):
       if plot_attention is not None:
         plot_attention_layer = "{}.layer_{}".format(plot_attention, layer_i)
@@ -482,7 +482,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
     elif self.pos_encoding_type == "embedding":
       encoding = self.positional_embedder.embed_sent(len(sent)).as_tensor()
     elif self.pos_encoding_type == "mlp":
-      inp = dy.inputTensor(np.asarray([[i/1000.0  for i in range(len(sent))],[(len(sent)-i)/1000.0 for i in range(len(sent))]] ), batched=True)
+      inp = dy.inputTensor(np.asarray([[i/1000.0  for i in range(len(sent))],[(len(sent)-i)/1000.0 for i in range(len(sent))], [(len(sent))/1000.0 for _ in range(len(sent))]] ), batched=True)
       mlp_out = self.positional_mlp(inp)
       encoding = dy.reshape(mlp_out, (self.input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size, len(sent)))
     if self.pos_encoding_type:
