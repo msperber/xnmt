@@ -23,7 +23,9 @@ speech-self-att: !Experiment
         ignore_masks: True
         #positional_embedding: 1500
         #diag_gauss_mask: 3
-        pos_matrix: shallow
+        #pos_matrix: shallow
+        kq_pos_encoding_type: embedding
+        kq_pos_encoding_size: 40
       - !TransformerSeqTransducer
         layers: 1
         input_dim: 512
@@ -35,7 +37,9 @@ speech-self-att: !Experiment
         ignore_masks: True
         #positional_encoding_concat: 40
         #diag_gauss_mask: 3
-        pos_matrix: shallow
+        #pos_matrix: shallow
+        kq_pos_encoding_type: mlp
+        kq_pos_encoding_size: 40
     attender: !MlpAttender
       state_dim: 64
       hidden_dim: 64

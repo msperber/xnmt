@@ -24,9 +24,10 @@ from xnmt.events import register_handler, handle_xnmt_event
 
 class MultiHeadedSelfAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
-               ignore_masks=False, plot_attention=None,
-               diag_gauss_mask=False, square_mask_std=False, 
-               pos_matrix=False, double_pos_emb=False, glorot_gain=1.0, desc=None):
+               ignore_masks=False, plot_attention=None, diag_gauss_mask=False,
+               square_mask_std=False, pos_matrix=False, double_pos_emb=False,
+               kq_pos_encoding_type=None, kq_pos_encoding_size=40, max_len=1500,
+               glorot_gain=1.0, desc=None):
     """
     :param head_count: number of self-att heads
     :param model_dim: 
@@ -36,6 +37,7 @@ class MultiHeadedSelfAttention(object):
     :param ignore_masks: don't apply any masking
     :param plot_attention: None or path to directory to write plots to
     :param diag_gauss_mask: False to disable, otherwise a float denoting the std of the mask
+    :param concat_kv_pos: None or 'embedding' or 'mlp'
     """
     if diag_gauss_mask:
       register_handler(self)
@@ -55,8 +57,29 @@ class MultiHeadedSelfAttention(object):
     self.diag_gauss_mask = diag_gauss_mask
     self.square_mask_std = square_mask_std
     
-    self.linear_kvq = Linear(input_dim * downsample_factor,
-                             head_count * self.dim_per_head * 3, model, glorot_gain=glorot_gain)
+    self.kq_pos_encoding_type = kq_pos_encoding_type
+    self.kq_pos_encoding_size = kq_pos_encoding_size
+    self.max_len = max_len
+    
+    if self.kq_pos_encoding_type is None:
+      self.linear_kvq = Linear(input_dim * downsample_factor,
+                               head_count * self.dim_per_head * 3, model, glorot_gain=glorot_gain)
+    else:
+      self.linear_kq = Linear(input_dim * downsample_factor + self.kq_pos_encoding_size,
+                              head_count * self.dim_per_head * 2, model, glorot_gain=glorot_gain)
+      self.linear_v = Linear(input_dim * downsample_factor,
+                             head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
+      if self.kq_pos_encoding_type=="embedding":
+        self.kq_positional_embedder = PositionEmbedder(max_pos=self.max_len,
+                                                       model=model,
+                                                       emb_dim=self.kq_pos_encoding_size,
+                                                       glorot_gain=glorot_gain)
+      elif self.kq_pos_encoding_type=="mlp":
+        self.kq_positional_mlp = MLP(input_dim=3,
+                                     hidden_dim=self.kq_pos_encoding_size,
+                                     output_dim=self.kq_pos_encoding_size,
+                                     model=model,
+                                     layers=1)
       
     if self.diag_gauss_mask:
       if self.diag_gauss_mask=="rand":
@@ -128,10 +151,24 @@ class MultiHeadedSelfAttention(object):
       residual = self.res_shortcut(residual)
       
     # Concatenate all the words together for doing vectorized affine transform
-    kvq_lin = self.linear_kvq(TimeDistributed()(x))
-    key_up = self.shape_projection(dy.pick_range(kvq_lin, 0, self.head_count * self.dim_per_head), batch_size) 
-    value_up = self.shape_projection(dy.pick_range(kvq_lin, self.head_count * self.dim_per_head, 2 * self.head_count * self.dim_per_head), batch_size)
-    query_up = self.shape_projection(dy.pick_range(kvq_lin, 2 * self.head_count * self.dim_per_head, 3 * self.head_count * self.dim_per_head), batch_size)
+    if self.kq_pos_encoding_type is None:
+      kvq_lin = self.linear_kvq(TimeDistributed()(x))
+      key_up = self.shape_projection(dy.pick_range(kvq_lin, 0, self.head_count * self.dim_per_head), batch_size) 
+      value_up = self.shape_projection(dy.pick_range(kvq_lin, self.head_count * self.dim_per_head, 2 * self.head_count * self.dim_per_head), batch_size)
+      query_up = self.shape_projection(dy.pick_range(kvq_lin, 2 * self.head_count * self.dim_per_head, 3 * self.head_count * self.dim_per_head), batch_size)
+    else: 
+      if self.kq_pos_encoding_type == "embedding":
+        encoding = self.kq_positional_embedder.embed_sent(sent_len).as_tensor()
+      elif self.kq_pos_encoding_type == "mlp":
+        inp = dy.inputTensor(np.asarray([[i/1000.0  for i in range(sent_len)],[(sent_len-i)/1000.0 for i in range(sent_len)], [(sent_len)/1000.0 for _ in range(sent_len)]] ), batched=True)
+        mlp_out = self.kq_positional_mlp(inp)
+        encoding = dy.reshape(mlp_out, (self.kq_pos_encoding_size, sent_len))
+      kq_lin = self.linear_kq(TimeDistributed()(ExpressionSequence(expr_tensor=dy.concatenate([x.as_tensor(), encoding]))))
+      key_up = self.shape_projection(dy.pick_range(kq_lin, 0, self.head_count * self.dim_per_head), batch_size) 
+      query_up = self.shape_projection(dy.pick_range(kq_lin, self.head_count * self.dim_per_head, 2 * self.head_count * self.dim_per_head), batch_size)
+      v_lin = self.linear_v(TimeDistributed()(x))
+      value_up = self.shape_projection(v_lin, batch_size)
+      
       
     if self.double_pos_emb:
       emb1 = dy.pick_range(dy.parameter(self.double_pos_emb_p1), 0,sent_len)
@@ -297,8 +334,9 @@ class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, model, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
-               square_mask_std=False, pos_matrix=False,
-               double_pos_emb=False, ff_window=1, glorot_gain=1.0, desc=None):
+               square_mask_std=False, pos_matrix=False, double_pos_emb=False, ff_window=1, 
+               kq_pos_encoding_type=None, kq_pos_encoding_size=40, max_len=1500, glorot_gain=1.0,
+               desc=None):
     self.self_attn = MultiHeadedSelfAttention(head_count, hidden_dim, model, downsample_factor, 
                                               input_dim=input_dim, ignore_masks=ignore_masks, 
                                               plot_attention=plot_attention,
@@ -306,6 +344,9 @@ class TransformerEncoderLayer(object):
                                               pos_matrix=pos_matrix,
                                               glorot_gain=glorot_gain,
                                               double_pos_emb=double_pos_emb,
+                                              kq_pos_encoding_type=kq_pos_encoding_type,
+                                              kq_pos_encoding_size=kq_pos_encoding_size,
+                                              max_len=max_len,
                                               desc=desc)
     self.ff_window = ff_window
     if ff_window==1:
@@ -373,6 +414,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                pos_encoding_size=40, max_len=1500,
                pos_matrix=False, diag_gauss_mask=False, square_mask_std=False,
                downsampling_method="reshape", double_pos_emb=False, ff_window=1,
+               kq_pos_encoding_type=None, kq_pos_encoding_size=40, 
                glorot_gain=None):
     """
     :param pos_encoding_type: None, trigonometric, embedding, mlp
@@ -421,6 +463,9 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   pos_matrix=pos_matrix,
                                                   double_pos_emb=double_pos_emb,
                                                   ff_window=ff_window,
+                                                  max_len=self.max_len,
+                                                  kq_pos_encoding_type=kq_pos_encoding_type,
+                                                  kq_pos_encoding_size=kq_pos_encoding_size, 
                                                   glorot_gain=glorot_gain[layer_i] if isinstance(glorot_gain,Sequence) else glorot_gain,
                                                   desc=f"layer_{layer_i}"))
 

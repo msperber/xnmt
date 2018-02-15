@@ -231,7 +231,7 @@ class PositionEmbedder(Embedder, Serializable):
 
   yaml_tag = '!PositionEmbedder'
 
-  def __init__(self, max_pos, exp_global=Ref(Path("exp_global")),
+  def __init__(self, max_pos, exp_global=Ref(Path("exp_global")), model=None,
                emb_dim=None, glorot_gain=None):
     """
     :param max_pos: largest embedded position (positions higher than this will default to the largest possible position)
@@ -241,7 +241,7 @@ class PositionEmbedder(Embedder, Serializable):
     register_handler(self)
     self.max_pos = max_pos
     self.emb_dim = emb_dim or exp_global.default_layer_dim
-    param_collection = exp_global.dynet_param_collection.param_col
+    param_collection = model or exp_global.dynet_param_collection.param_col
     glorot_gain = glorot_gain or exp_global.glorot_gain 
     init = dy.GlorotInitializer(is_lookup=True, gain=glorot_gain)
     self.embeddings = param_collection.add_lookup_parameters((max_pos, self.emb_dim),
