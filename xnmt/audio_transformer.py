@@ -22,12 +22,9 @@ from xnmt.serialize.serializable import Serializable
 from xnmt.serialize.tree_tools import Ref, Path
 from xnmt.events import register_handler, handle_xnmt_event
 
-MAX_SIZE = 5000
-MIN_VAL = -10000   # This value is close to NEG INFINITY
-
-class MultiHeadedAttention(object):
+class MultiHeadedSelfAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
-               is_self_att=False, ignore_masks=False, plot_attention=None,
+               ignore_masks=False, plot_attention=None,
                diag_gauss_mask=False, square_mask_std=False, 
                pos_matrix=False, double_pos_emb=False, glorot_gain=1.0, desc=None):
     """
@@ -36,11 +33,9 @@ class MultiHeadedAttention(object):
     :param model: dynet param collection
     :param downsample_factor:
     :param input_dim:
-    :param is_self_att: if True, expect key=query=value
     :param ignore_masks: don't apply any masking
     :param plot_attention: None or path to directory to write plots to
     :param diag_gauss_mask: False to disable, otherwise a float denoting the std of the mask
-    :param downsampling_method: how to perform downsampling (reshape|skip)
     """
     if diag_gauss_mask:
       register_handler(self)
@@ -60,17 +55,9 @@ class MultiHeadedAttention(object):
     self.diag_gauss_mask = diag_gauss_mask
     self.square_mask_std = square_mask_std
     
-    self.is_self_att = is_self_att
-    
-    if is_self_att:
-      self.linear_kvq = Linear(input_dim * downsample_factor,
-                               head_count * self.dim_per_head * 3, model, glorot_gain=glorot_gain)
+    self.linear_kvq = Linear(input_dim * downsample_factor,
+                             head_count * self.dim_per_head * 3, model, glorot_gain=glorot_gain)
       
-    else:
-      self.linear_keys = Linear(input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
-      self.linear_values = Linear(input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
-      self.linear_query = Linear(input_dim * downsample_factor, head_count * self.dim_per_head, model, glorot_gain=glorot_gain)
-    
     if self.diag_gauss_mask:
       if self.diag_gauss_mask=="rand":
         rand_init = np.exp((np.random.random(size=(self.head_count,)))*math.log(1000))
@@ -111,18 +98,15 @@ class MultiHeadedAttention(object):
     return dy.reshape(out, (seq_len, self.dim_per_head), batch_size=batch_size * self.head_count)
 #     return dy.reshape_transpose_reshape(x, (self.model_dim, seq_len), (seq_len, self.dim_per_head), pre_batch_size=batch_size, post_batch_size=batch_size * self.head_count)
 
-  def __call__(self, key, value, query, att_mask, batch_mask, p):
+  def __call__(self, x, att_mask, batch_mask, p):
     """
-    :param key: DyNet expression of dimensions (input_dim, time) x batch
-    :param value: DyNet expression of dimensions (input_dim, time) x batch (None for using value = key)
-    :param query: DyNet expression of dimensions (input_dim, time) x batch (None for using query = key)
+    :param x: DyNet expression of dimensions (input_dim, time) x batch
     :param att_mask: numpy array of dimensions (time, time); pre-transposed
     :param batch_mask: numpy array of dimensions (batch, time)
     :param p: dropout prob
     """
-    if value is None or query is None: assert self.is_self_att
-    sent_len = key.dim()[0][1]
-    batch_size = key[0].dim()[1]
+    sent_len = x.dim()[0][1]
+    batch_size = x[0].dim()[1]
 
     if self.downsample_factor > 1:
       if sent_len % self.downsample_factor != 0:
@@ -130,36 +114,24 @@ class MultiHeadedAttention(object):
       if batch_mask is not None: batch_mask = batch_mask[:,::self.downsample_factor]
       sent_len_out = sent_len // self.downsample_factor
       sent_len = sent_len_out
-      out_mask = key.mask
+      out_mask = x.mask
       if self.downsample_factor > 1 and out_mask is not None:
         out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
 
-      if query:
-        query = ExpressionSequence(expr_tensor=dy.reshape(query.as_tensor(), (query.dim()[0][0] * self.downsample_factor, query.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
-                                   mask=out_mask)
-      if key:
-        key = ExpressionSequence(expr_tensor=dy.reshape(key.as_tensor(), (key.dim()[0][0] * self.downsample_factor, key.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
-                                 mask=out_mask)
-      if value:
-        value = ExpressionSequence(expr_tensor=dy.reshape(value.as_tensor(), (value.dim()[0][0] * self.downsample_factor, value.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
-                                   mask=out_mask)
-      residual = TimeDistributed()(query or key)
+      x = ExpressionSequence(expr_tensor=dy.reshape(x.as_tensor(), (x.dim()[0][0] * self.downsample_factor, x.dim()[0][1] / self.downsample_factor), batch_size = batch_size),
+                               mask=out_mask)
+      residual = TimeDistributed()(x)
     else:
-      residual = TimeDistributed()(query or key)
+      residual = TimeDistributed()(x)
       sent_len_out = sent_len
     if self.model_dim!=self.input_dim*self.downsample_factor:
       residual = self.res_shortcut(residual)
       
     # Concatenate all the words together for doing vectorized affine transform
-    if self.is_self_att:
-      kvq_lin = self.linear_kvq(TimeDistributed()(key))
-      key_up = self.shape_projection(dy.pick_range(kvq_lin, 0, self.head_count * self.dim_per_head), batch_size) 
-      value_up = self.shape_projection(dy.pick_range(kvq_lin, self.head_count * self.dim_per_head, 2 * self.head_count * self.dim_per_head), batch_size)
-      query_up = self.shape_projection(dy.pick_range(kvq_lin, 2 * self.head_count * self.dim_per_head, 3 * self.head_count * self.dim_per_head), batch_size)
-    else:
-      key_up = self.shape_projection(self.linear_keys(TimeDistributed()(key)), batch_size) 
-      value_up = self.shape_projection(self.linear_values(TimeDistributed()(value)), batch_size)
-      query_up = self.shape_projection(self.linear_query(TimeDistributed()(query)), batch_size)
+    kvq_lin = self.linear_kvq(TimeDistributed()(x))
+    key_up = self.shape_projection(dy.pick_range(kvq_lin, 0, self.head_count * self.dim_per_head), batch_size) 
+    value_up = self.shape_projection(dy.pick_range(kvq_lin, self.head_count * self.dim_per_head, 2 * self.head_count * self.dim_per_head), batch_size)
+    query_up = self.shape_projection(dy.pick_range(kvq_lin, 2 * self.head_count * self.dim_per_head, 3 * self.head_count * self.dim_per_head), batch_size)
       
     if self.double_pos_emb:
       emb1 = dy.pick_range(dy.parameter(self.double_pos_emb_p1), 0,sent_len)
@@ -299,8 +271,7 @@ class MultiHeadedAttention(object):
       self.plot_att_mat(avg_mat, 
                         "{}.sent_{}.head_avg.png".format(self.plot_attention, self.plot_attention_counter),
                         300)
-      in_val = value or key
-      cosim_before = cosine_similarity(in_val.as_tensor().npvalue().T)
+      cosim_before = cosine_similarity(x.as_tensor().npvalue().T)
       self.plot_att_mat(cosim_before, 
                         "{}.sent_{}.cosim_before.png".format(self.plot_attention, self.plot_attention_counter),
                         600)
@@ -328,14 +299,14 @@ class TransformerEncoderLayer(object):
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
                square_mask_std=False, pos_matrix=False,
                double_pos_emb=False, ff_window=1, glorot_gain=1.0, desc=None):
-    self.self_attn = MultiHeadedAttention(head_count, hidden_dim, model, downsample_factor, 
-                                          input_dim=input_dim, is_self_att=True, ignore_masks=ignore_masks, 
-                                          plot_attention=plot_attention,
-                                          diag_gauss_mask=diag_gauss_mask, square_mask_std=square_mask_std,
-                                          pos_matrix=pos_matrix,
-                                          glorot_gain=glorot_gain,
-                                          double_pos_emb=double_pos_emb,
-                                          desc=desc)
+    self.self_attn = MultiHeadedSelfAttention(head_count, hidden_dim, model, downsample_factor, 
+                                              input_dim=input_dim, ignore_masks=ignore_masks, 
+                                              plot_attention=plot_attention,
+                                              diag_gauss_mask=diag_gauss_mask, square_mask_std=square_mask_std,
+                                              pos_matrix=pos_matrix,
+                                              glorot_gain=glorot_gain,
+                                              double_pos_emb=double_pos_emb,
+                                              desc=desc)
     self.ff_window = ff_window
     if ff_window==1:
       self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity,
@@ -371,8 +342,7 @@ class TransformerEncoderLayer(object):
         for i in range(seq_len):
             att_mask[i,i] = 1.0
       
-        
-    mid = self.self_attn(key=x, value=None, query=None, att_mask=att_mask, batch_mask=x.mask.np_arr if x.mask else None, p=self.dropout)
+    mid = self.self_attn(x=x, att_mask=att_mask, batch_mask=x.mask.np_arr if x.mask else None, p=self.dropout)
     if self.downsample_factor > 1:
       seq_len = int(math.ceil(seq_len / float(self.downsample_factor)))
     if self.ff_window > 1:
