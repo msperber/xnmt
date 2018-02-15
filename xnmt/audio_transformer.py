@@ -201,20 +201,20 @@ class MultiHeadedAttention(object):
         else: return 9
       #map_fnc = lambda v: min(10,int(math.log2(1+v)))
       # TODO: this is apparently very slow and needs to be re-designed
-      indices_0 = [i for i in range(sent_len) for j in range(sent_len)] * 7
-      indices_1 = [i for i in range(sent_len) for j in range(sent_len)] * 7
-      indices_2 = [   map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
-                  [10+map_fnc(max(i-j, 0))    for i in range(sent_len) for j in range(sent_len)] +\
-                  [20+map_fnc(max(j-i, 0))    for i in range(sent_len) for j in range(sent_len)] +\
-                  [30+map_fnc(i)              for i in range(sent_len) for j in range(sent_len)] +\
-                  [40+map_fnc(sent_len-i)     for i in range(sent_len) for j in range(sent_len)] +\
-                  [50+map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
-                  [60+map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
-      values = [1.0] * (sent_len * sent_len * 7)
-      #one_hot_pos_matrix = dy.ones((sent_len, sent_len, 70))
-      one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
-                                                 values,
-                                                 shape=(sent_len, sent_len, 70))
+      #indices_0 = [i for i in range(sent_len) for j in range(sent_len)] * 7
+      #indices_1 = [i for i in range(sent_len) for j in range(sent_len)] * 7
+      #indices_2 = [   map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
+      #            [10+map_fnc(max(i-j, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+      #            [20+map_fnc(max(j-i, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+      #            [30+map_fnc(i)              for i in range(sent_len) for j in range(sent_len)] +\
+      #            [40+map_fnc(sent_len-i)     for i in range(sent_len) for j in range(sent_len)] +\
+      #            [50+map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
+      #            [60+map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
+      #values = [1.0] * (sent_len * sent_len * 7)
+      one_hot_pos_matrix = dy.ones((sent_len, sent_len, 70))
+      #one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
+      #                                           values,
+      #                                           shape=(sent_len, sent_len, 70))
       embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix_p),stride=(1,1))
       scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head))
       scaled = dy.reshape(scaled, (sent_len, sent_len, self.head_count), batch_size=batch_size)
