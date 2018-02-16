@@ -41,6 +41,7 @@ speech-self-att: !Experiment
         #pos_matrix: shallow
         kq_pos_encoding_type: mlp
         kq_pos_encoding_size: 40
+        skip_attention: y
     attender: !MlpAttender
       state_dim: 64
       hidden_dim: 64

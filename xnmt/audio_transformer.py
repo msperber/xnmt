@@ -69,7 +69,7 @@ class MultiHeadedSelfAttention(object):
                ignore_masks=False, plot_attention=None, diag_gauss_mask=False,
                square_mask_std=False, pos_matrix=False, cross_pos_encoding_type=None,
                kq_pos_encoding_type=None, kq_pos_encoding_size=40, max_len=1500,
-               glorot_gain=1.0, desc=None):
+               skip_attention=False, glorot_gain=1.0, desc=None):
     """
     :param head_count: number of self-att heads
     :param model_dim: 
@@ -94,6 +94,7 @@ class MultiHeadedSelfAttention(object):
     self.plot_attention = plot_attention
     self.plot_attention_counter = 0
     self.desc = desc
+    self.skip_attention = skip_attention
     
     self.ignore_masks = ignore_masks
     self.diag_gauss_mask = diag_gauss_mask
@@ -214,7 +215,7 @@ class MultiHeadedSelfAttention(object):
       sent_len_out = sent_len
     if self.model_dim!=self.input_dim*self.downsample_factor:
       residual = self.res_shortcut(residual)
-      
+    
     # Concatenate all the words together for doing vectorized affine transform
     if self.kq_pos_encoding_type is None:
       kvq_lin = self.linear_kvq(TimeDistributed()(x))
@@ -236,85 +237,88 @@ class MultiHeadedSelfAttention(object):
       v_lin = self.linear_v(TimeDistributed()(x))
       value_up = self.shape_projection(v_lin, batch_size)
       
-    if self.cross_pos_encoding_type:
-      if self.cross_pos_encoding_type=="embedding":
-        emb1 = dy.pick_range(dy.parameter(self.cross_pos_emb_p1), 0, sent_len)
-        emb2 = dy.pick_range(dy.parameter(self.cross_pos_emb_p2), 0, sent_len)
-      elif self.cross_pos_encoding_type=="feat-embedding":
-        emb1_transp = get_feat_embeddings(sent_len, dy.parameter(self.cross_pos_feat_emb1_p), dy.parameter(self.cross_pos_feat_emb1_p_b))
-        emb1 = dy.reshape(dy.transpose(emb1_transp), (sent_len, self.dim_per_head, self.head_count))
-        emb2_transp = get_feat_embeddings(sent_len, dy.parameter(self.cross_pos_feat_emb2_p), dy.parameter(self.cross_pos_feat_emb2_p_b))
-        emb2 = dy.reshape(dy.transpose(emb2_transp), (sent_len, self.dim_per_head, self.head_count))
-      elif self.cross_pos_encoding_type=="mlp":
-        inp = dy.inputTensor(np.asarray([[i/1000.0  for i in range(sent_len)],[(sent_len-i)/1000.0 for i in range(sent_len)]]), batched=True)
-        mlp_out1 = self.cross_pos_mlp1(inp)
-        emb1 = dy.reshape(dy.transpose(dy.reshape(mlp_out1, (self.dim_per_head * self.head_count, sent_len))), (sent_len, self.dim_per_head, self.head_count))
-        mlp_out2 = self.cross_pos_mlp2(inp)
-        emb2 = dy.reshape(dy.transpose(dy.reshape(mlp_out2, (self.dim_per_head * self.head_count, sent_len))), (sent_len, self.dim_per_head, self.head_count))
-      key_up = dy.reshape(key_up, (sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
-      key_up = dy.concatenate_cols([dy.cmult(key_up, emb1), dy.cmult(key_up, emb2)])
-      key_up = dy.reshape(key_up, (sent_len, self.dim_per_head*2), batch_size=self.head_count*batch_size)
-      query_up = dy.reshape(query_up, (sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
-      query_up = dy.concatenate_cols([dy.cmult(query_up, emb2), dy.cmult(query_up, -emb1)])
-      query_up = dy.reshape(query_up, (sent_len, self.dim_per_head*2), batch_size=self.head_count*batch_size)
-
-#     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
-    if self.pos_matrix:
-      indices_0, indices_1, indices_2 = get_pos_matrix_indices(sent_len)
-      values = [1.0] * (sent_len * sent_len * 7)
-      one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
-                                                 values,
-                                                 shape=(sent_len, sent_len, 70))
-      embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix_p),stride=(1,1))
-      scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head))
-      scaled = dy.reshape(scaled, (sent_len, sent_len, self.head_count), batch_size=batch_size)
-      scaled = scaled + embedded_pos_matrix
-      scaled = dy.reshape(scaled, (sent_len, sent_len), batch_size=self.head_count*batch_size)
-    else:
-      scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head)) # scale before the matrix multiplication to save memory
-
-    # Apply Mask here
-    if not self.ignore_masks:
-      if att_mask is not None:
-        att_mask_inp = att_mask * -100.0
-        if self.downsample_factor>1:
-          att_mask_inp = att_mask_inp[::self.downsample_factor,::self.downsample_factor]
-        scaled += dy.inputTensor(att_mask_inp)
-      if batch_mask is not None:
-        # reshape (batch, time) -> (time, head_count*batch), then *-100
-        inp = np.resize(np.broadcast_to(batch_mask.T[:,np.newaxis,:],
-                                        (sent_len, self.head_count, batch_size)), 
-                        (1, sent_len, self.head_count*batch_size)) \
-              * -100
-        mask_expr = dy.inputTensor(inp, batched=True)
-        scaled += mask_expr
-      if self.diag_gauss_mask:
-        diag_growing = np.zeros((sent_len, sent_len, self.head_count))
-        for i in range(sent_len):
-          for j in range(sent_len):
-            diag_growing[i,j,:] = -(i-j)**2 / 2.0
-        e_diag_gauss_mask = dy.inputTensor(diag_growing)
-        e_sigma = dy.parameter(self.diag_gauss_mask_sigma)
-        if self.square_mask_std:
-          e_sigma = dy.square(e_sigma)
-        e_sigma_sq_inv = dy.cdiv(dy.ones(e_sigma.dim()[0], batch_size=batch_size), dy.square(e_sigma))
-        e_diag_gauss_mask_final = dy.cmult(e_diag_gauss_mask, e_sigma_sq_inv)
-        scaled += dy.reshape(e_diag_gauss_mask_final, (sent_len, sent_len), batch_size=batch_size * self.head_count)
-    
-    # Computing Softmax here.
-    attn = dy.softmax(scaled, d=1)
-    if settings.LOG_ATTENTION:
-      yaml_logger.info({"key":"selfatt_mat_ax0", "value":np.sum(attn.value(),axis=0).dumps(), "desc":self.desc})
-      yaml_logger.info({"key":"selfatt_mat_ax1", "value":np.sum(attn.value(),axis=1).dumps(), "desc":self.desc})
-
-    # Applying dropout to attention
-    if p>0.0:
-      drop_attn = dy.dropout(attn, p)
-    else:
-      drop_attn = attn
-
-    # Computing weighted attention score
-    attn_prod = drop_attn * value_up
+    if self.skip_attention:
+      attn_prod = value_up
+    else:  
+      if self.cross_pos_encoding_type:
+        if self.cross_pos_encoding_type=="embedding":
+          emb1 = dy.pick_range(dy.parameter(self.cross_pos_emb_p1), 0, sent_len)
+          emb2 = dy.pick_range(dy.parameter(self.cross_pos_emb_p2), 0, sent_len)
+        elif self.cross_pos_encoding_type=="feat-embedding":
+          emb1_transp = get_feat_embeddings(sent_len, dy.parameter(self.cross_pos_feat_emb1_p), dy.parameter(self.cross_pos_feat_emb1_p_b))
+          emb1 = dy.reshape(dy.transpose(emb1_transp), (sent_len, self.dim_per_head, self.head_count))
+          emb2_transp = get_feat_embeddings(sent_len, dy.parameter(self.cross_pos_feat_emb2_p), dy.parameter(self.cross_pos_feat_emb2_p_b))
+          emb2 = dy.reshape(dy.transpose(emb2_transp), (sent_len, self.dim_per_head, self.head_count))
+        elif self.cross_pos_encoding_type=="mlp":
+          inp = dy.inputTensor(np.asarray([[i/1000.0  for i in range(sent_len)],[(sent_len-i)/1000.0 for i in range(sent_len)]]), batched=True)
+          mlp_out1 = self.cross_pos_mlp1(inp)
+          emb1 = dy.reshape(dy.transpose(dy.reshape(mlp_out1, (self.dim_per_head * self.head_count, sent_len))), (sent_len, self.dim_per_head, self.head_count))
+          mlp_out2 = self.cross_pos_mlp2(inp)
+          emb2 = dy.reshape(dy.transpose(dy.reshape(mlp_out2, (self.dim_per_head * self.head_count, sent_len))), (sent_len, self.dim_per_head, self.head_count))
+        key_up = dy.reshape(key_up, (sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
+        key_up = dy.concatenate_cols([dy.cmult(key_up, emb1), dy.cmult(key_up, emb2)])
+        key_up = dy.reshape(key_up, (sent_len, self.dim_per_head*2), batch_size=self.head_count*batch_size)
+        query_up = dy.reshape(query_up, (sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
+        query_up = dy.concatenate_cols([dy.cmult(query_up, emb2), dy.cmult(query_up, -emb1)])
+        query_up = dy.reshape(query_up, (sent_len, self.dim_per_head*2), batch_size=self.head_count*batch_size)
+  
+  #     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
+      if self.pos_matrix:
+        indices_0, indices_1, indices_2 = get_pos_matrix_indices(sent_len)
+        values = [1.0] * (sent_len * sent_len * 7)
+        one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
+                                                   values,
+                                                   shape=(sent_len, sent_len, 70))
+        embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix_p),stride=(1,1))
+        scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head))
+        scaled = dy.reshape(scaled, (sent_len, sent_len, self.head_count), batch_size=batch_size)
+        scaled = scaled + embedded_pos_matrix
+        scaled = dy.reshape(scaled, (sent_len, sent_len), batch_size=self.head_count*batch_size)
+      else:
+        scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head)) # scale before the matrix multiplication to save memory
+  
+      # Apply Mask here
+      if not self.ignore_masks:
+        if att_mask is not None:
+          att_mask_inp = att_mask * -100.0
+          if self.downsample_factor>1:
+            att_mask_inp = att_mask_inp[::self.downsample_factor,::self.downsample_factor]
+          scaled += dy.inputTensor(att_mask_inp)
+        if batch_mask is not None:
+          # reshape (batch, time) -> (time, head_count*batch), then *-100
+          inp = np.resize(np.broadcast_to(batch_mask.T[:,np.newaxis,:],
+                                          (sent_len, self.head_count, batch_size)), 
+                          (1, sent_len, self.head_count*batch_size)) \
+                * -100
+          mask_expr = dy.inputTensor(inp, batched=True)
+          scaled += mask_expr
+        if self.diag_gauss_mask:
+          diag_growing = np.zeros((sent_len, sent_len, self.head_count))
+          for i in range(sent_len):
+            for j in range(sent_len):
+              diag_growing[i,j,:] = -(i-j)**2 / 2.0
+          e_diag_gauss_mask = dy.inputTensor(diag_growing)
+          e_sigma = dy.parameter(self.diag_gauss_mask_sigma)
+          if self.square_mask_std:
+            e_sigma = dy.square(e_sigma)
+          e_sigma_sq_inv = dy.cdiv(dy.ones(e_sigma.dim()[0], batch_size=batch_size), dy.square(e_sigma))
+          e_diag_gauss_mask_final = dy.cmult(e_diag_gauss_mask, e_sigma_sq_inv)
+          scaled += dy.reshape(e_diag_gauss_mask_final, (sent_len, sent_len), batch_size=batch_size * self.head_count)
+      
+      # Computing Softmax here.
+      attn = dy.softmax(scaled, d=1)
+      if settings.LOG_ATTENTION:
+        yaml_logger.info({"key":"selfatt_mat_ax0", "value":np.sum(attn.value(),axis=0).dumps(), "desc":self.desc})
+        yaml_logger.info({"key":"selfatt_mat_ax1", "value":np.sum(attn.value(),axis=1).dumps(), "desc":self.desc})
+  
+      # Applying dropout to attention
+      if p>0.0:
+        drop_attn = dy.dropout(attn, p)
+      else:
+        drop_attn = attn
+  
+      # Computing weighted attention score
+      attn_prod = drop_attn * value_up
     
     # Reshaping the attn_prod to input query dimensions
     out = dy.reshape(attn_prod, (sent_len_out, self.dim_per_head * self.head_count), batch_size=batch_size)
@@ -362,7 +366,7 @@ class TransformerEncoderLayer(object):
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
                square_mask_std=False, pos_matrix=False, cross_pos_encoding_type=None, ff_window=1,
                ff_lstm=False, kq_pos_encoding_type=None, kq_pos_encoding_size=40, max_len=1500,
-               glorot_gain=1.0, dropout=None, desc=None):
+               glorot_gain=1.0, dropout=None, skip_attention=False, desc=None):
     model = exp_global.dynet_param_collection.param_col
     self.self_attn = MultiHeadedSelfAttention(head_count, hidden_dim, model, downsample_factor, 
                                               input_dim=input_dim, ignore_masks=ignore_masks, 
@@ -374,6 +378,7 @@ class TransformerEncoderLayer(object):
                                               kq_pos_encoding_type=kq_pos_encoding_type,
                                               kq_pos_encoding_size=kq_pos_encoding_size,
                                               max_len=max_len,
+                                              skip_attention=skip_attention,
                                               desc=desc)
     self.ff_window = ff_window
     self.ff_lstm = ff_lstm
@@ -451,7 +456,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                pos_matrix=False, diag_gauss_mask=False, square_mask_std=False,
                downsampling_method="reshape", cross_pos_encoding_type=None, ff_window=1,
                ff_lstm=False, kq_pos_encoding_type=None, kq_pos_encoding_size=40, 
-               glorot_gain=None):
+               skip_attention=False, glorot_gain=None):
     """
     :param pos_encoding_type: None, trigonometric, embedding, mlp, feat-embedding
     :param pos_encoding_combine: add, concat
@@ -507,6 +512,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   kq_pos_encoding_type=kq_pos_encoding_type,
                                                   kq_pos_encoding_size=kq_pos_encoding_size, 
                                                   dropout=dropout,
+                                                  skip_attention=skip_attention,
                                                   glorot_gain=glorot_gain[layer_i] if isinstance(glorot_gain,Sequence) else glorot_gain,
                                                   desc=f"layer_{layer_i}"))
 
