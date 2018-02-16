@@ -1,3 +1,4 @@
+import argparse
 from collections import  Counter
 
 import matplotlib
@@ -11,18 +12,29 @@ import yaml
 
 from xnmt.vocab import Vocab
 
+parser = argparse.ArgumentParser(description='Analyze correlation between cross attention and self attention.')
+parser.add_argument('--vocab', type=str, default="/Users/matthias/Desktop/en-de-es-fr.lc.no-numbers-punct.vocab")
+parser.add_argument('--yaml_log', type=str, default="/Users/matthias/Desktop/165.3.cossim.yaml")
+parser.add_argument('--summarize_yaml', type=str, default="/Users/matthias/Desktop/165.3.cossim.yaml")
+parser.add_argument('--plot', type=str, default="/Users/matthias/Desktop/165.3.png")
+parser.add_argument('--do_summarize', dest='do_summarize', action='store_const',
+                    const=True, default=False,)
+parser.add_argument('--do_plot', dest='do_plot', action='store_const',
+                    const=True, default=False,)
+args = parser.parse_args()
+
 # vocab_file = "/project/data-audio/tedlium-multi/parallel/vocab/en-de-es-fr.lc.no-numbers-punct.vocab"
 # yaml_log_file = "/project/iwslt2015b/project/nmt-audio/exp-xnmt/03.audio2char/logs/exp165a.att.1.log.yaml"
 # summarized_yaml_file = "/home/msperber/experiments/attention-heads/165.3.cossim.yaml"
 # plot_file = ""
-vocab_file = "/Users/matthias/Desktop/en-de-es-fr.lc.no-numbers-punct.vocab"
+vocab_file = args.vocab #"/Users/matthias/Desktop/en-de-es-fr.lc.no-numbers-punct.vocab"
 # yaml_log_file = "/Users/matthias/Desktop/exp165a.att.1.log.small.yaml"
-yaml_log_file = "/Users/matthias/Desktop/165.3.cossim.yaml"
-summarized_yaml_file = "/Users/matthias/Desktop/165.3.cossim.yaml"
-plot_file = "/Users/matthias/Desktop/165.3.png"
+yaml_log_file = args.yaml_log # "/Users/matthias/Desktop/165.3.cossim.yaml"
+summarized_yaml_file = args.summarize_yaml # "/Users/matthias/Desktop/165.3.cossim.yaml"
+plot_file = args.plot # "/Users/matthias/Desktop/165.3.png"
 
-should_summarize_log = False
-should_plot = True
+should_summarize_log = args.do_summarize
+should_plot = args.do_plot
 
 nheads = 8
 nlayers = 2
