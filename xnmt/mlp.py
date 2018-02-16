@@ -2,11 +2,11 @@ import dynet as dy
 import xnmt.linear
 
 class MLP(object):
-  def __init__(self, input_dim, hidden_dim, output_dim, model, layers=1):
+  def __init__(self, input_dim, hidden_dim, output_dim, model, layers=1, output_bias_init=0.0):
     self.hidden = [xnmt.linear.Linear(input_dim, hidden_dim, model)]
     for _ in range(1,layers):
       self.hidden.append(xnmt.linear.Linear(hidden_dim, hidden_dim, model))
-    self.output = xnmt.linear.Linear(hidden_dim, output_dim, model)
+    self.output = xnmt.linear.Linear(hidden_dim, output_dim, model, bias_init=output_bias_init)
 
   def __call__(self, input_expr):
     output = input_expr

@@ -141,11 +141,18 @@ class MultiHeadedSelfAttention(object):
       self.cross_pos_feat_emb2_p = model.add_parameters((self.dim_per_head * self.head_count, FEAT_ENC_SIZE), init=dy.ConstInitializer(0.5))
       self.cross_pos_feat_emb2_p_b = model.add_parameters((self.dim_per_head * self.head_count,), init=dy.ConstInitializer(0.0))
     elif cross_pos_encoding_type=="mlp":
-      self.cross_pos_mlp = MLP(input_dim=2,
-                               hidden_dim=self.dim_per_head * self.head_count,
-                               output_dim=self.dim_per_head * self.head_count,
-                               model=model,
-                               layers=1)
+      self.cross_pos_mlp1 = MLP(input_dim=2,
+                                hidden_dim=self.dim_per_head * self.head_count,
+                                output_dim=self.dim_per_head * self.head_count,
+                                model=model,
+                                layers=1,
+                                output_bias_init=1)
+      self.cross_pos_mlp2 = MLP(input_dim=2,
+                                hidden_dim=self.dim_per_head * self.head_count,
+                                output_dim=self.dim_per_head * self.head_count,
+                                model=model,
+                                layers=1,
+                                output_bias_init=1)
     elif cross_pos_encoding_type is not None: raise NotImplementedError()
  
  
@@ -226,7 +233,11 @@ class MultiHeadedSelfAttention(object):
         emb2_transp = get_feat_embeddings(sent_len, dy.parameter(self.cross_pos_feat_emb2_p), dy.parameter(self.cross_pos_feat_emb2_p_b))
         emb2 = dy.reshape(dy.transpose(emb2_transp), (sent_len, self.dim_per_head, self.head_count))
       elif self.cross_pos_encoding_type=="mlp":
-        ... # TODO
+        inp = dy.inputTensor(np.asarray([[i/1000.0  for i in range(sent_len)],[(sent_len-i)/1000.0 for i in range(sent_len)]]), batched=True)
+        mlp_out1 = self.cross_pos_mlp1(inp)
+        emb1 = dy.reshape(dy.transpose(dy.reshape(mlp_out1, (self.dim_per_head * self.head_count, sent_len))), (sent_len, self.dim_per_head, self.head_count))
+        mlp_out2 = self.cross_pos_mlp2(inp)
+        emb2 = dy.reshape(dy.transpose(dy.reshape(mlp_out2, (self.dim_per_head * self.head_count, sent_len))), (sent_len, self.dim_per_head, self.head_count))
       key_up = dy.reshape(key_up, (sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
       key_up = dy.concatenate_cols([dy.cmult(key_up, emb1), dy.cmult(key_up, emb2)])
       key_up = dy.reshape(key_up, (sent_len, self.dim_per_head*2), batch_size=self.head_count*batch_size)
@@ -235,41 +246,8 @@ class MultiHeadedSelfAttention(object):
       query_up = dy.reshape(query_up, (sent_len, self.dim_per_head*2), batch_size=self.head_count*batch_size)
 
 #     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
-    if self.pos_matrix=='shallow':
-      #log_map_fnc = lambda v: min(10,int(math.log2(1+v)))
+    if self.pos_matrix:
       # TODO: this is apparently very slow and needs to be re-designed
-      #indices_0 = [i for i in range(sent_len) for j in range(sent_len)] * 7
-      #indices_1 = [i for i in range(sent_len) for j in range(sent_len)] * 7
-      #indices_2 = [   log_map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
-      #            [10+log_map_fnc(max(i-j, 0))    for i in range(sent_len) for j in range(sent_len)] +\
-      #            [20+log_map_fnc(max(j-i, 0))    for i in range(sent_len) for j in range(sent_len)] +\
-      #            [30+log_map_fnc(i)              for i in range(sent_len) for j in range(sent_len)] +\
-      #            [40+log_map_fnc(sent_len-i)     for i in range(sent_len) for j in range(sent_len)] +\
-      #            [50+log_map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
-      #            [60+log_map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
-      #values = [1.0] * (sent_len * sent_len * 7)
-      one_hot_pos_matrix = dy.ones((sent_len, sent_len, 70))
-      #one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
-      #                                           values,
-      #                                           shape=(sent_len, sent_len, 70))
-      embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix_p),stride=(1,1))
-      scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head))
-      scaled = dy.reshape(scaled, (sent_len, sent_len, self.head_count), batch_size=batch_size)
-      scaled = scaled + embedded_pos_matrix
-      scaled = dy.reshape(scaled, (sent_len, sent_len), batch_size=self.head_count*batch_size)
-    elif self.pos_matrix:
-      # this needs a crazy amount of memory and should probably be avoided
-      left = dy.reshape(query_up, (sent_len,1), batch_size=self.dim_per_head*self.head_count*batch_size)
-      right = dy.reshape(query_up, (1,sent_len), batch_size=self.dim_per_head*self.head_count*batch_size)
-      m = dy.reshape(left * right, (sent_len * sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
-      #  0.. 9: |pos_i - pos_j|
-      # 10..19: max(pos_i - pos_j, 0)
-      # 20..29: max(pos_j - pos_i, 0)
-      # 30..39: pos_i
-      # 40..49: len-pos_i
-      # 50..59: pos_j
-      # 60..69: len-pos_j
-      #log_map_fnc = lambda v: min(10,int(math.log2(1+v)))
       indices_0 = [i for i in range(sent_len) for j in range(sent_len)] * 7
       indices_1 = [i for i in range(sent_len) for j in range(sent_len)] * 7
       indices_2 = [   log_map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
@@ -280,13 +258,15 @@ class MultiHeadedSelfAttention(object):
                   [50+log_map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
                   [60+log_map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
       values = [1.0] * (sent_len * sent_len * 7)
+      #one_hot_pos_matrix = dy.ones((sent_len, sent_len, 70))
       one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
                                                  values,
                                                  shape=(sent_len, sent_len, 70))
       embedded_pos_matrix = dy.conv2d(one_hot_pos_matrix,dy.parameter(self.pos_matrix_p),stride=(1,1))
-      embedded_pos_matrix = dy.reshape(embedded_pos_matrix, (sent_len*sent_len,self.dim_per_head,self.head_count),)
-      m2 = dy.cmult(m, embedded_pos_matrix)
-      scaled = dy.reshape(dy.sum_dim(m2, d=[1]), (sent_len, sent_len), batch_size=self.head_count*batch_size)
+      scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head))
+      scaled = dy.reshape(scaled, (sent_len, sent_len, self.head_count), batch_size=batch_size)
+      scaled = scaled + embedded_pos_matrix
+      scaled = dy.reshape(scaled, (sent_len, sent_len), batch_size=self.head_count*batch_size)
     else:
       scaled = query_up * dy.transpose(key_up / math.sqrt(self.dim_per_head)) # scale before the matrix multiplication to save memory
 
@@ -495,7 +475,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
       self.pos_feat_emb_p = param_col.add_parameters((input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size, FEAT_ENC_SIZE), init=dy.GlorotInitializer(gain=glorot_gain))
       self.pos_feat_emb_p_b = param_col.add_parameters((input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size), init=dy.ConstInitializer(0.0))
     elif self.pos_encoding_type=="mlp":
-      self.positional_mlp = MLP(input_dim=3,
+      self.positional_mlp = MLP(input_dim=2,
                                 hidden_dim=input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size,
                                 output_dim=input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size,
                                 model=param_col,
@@ -537,7 +517,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
     elif self.pos_encoding_type == "embedding":
       encoding = self.positional_embedder.embed_sent(len(sent)).as_tensor()
     elif self.pos_encoding_type == "mlp":
-      inp = dy.inputTensor(np.asarray([[i/1000.0  for i in range(len(sent))],[(len(sent)-i)/1000.0 for i in range(len(sent))], [(len(sent))/1000.0 for _ in range(len(sent))]] ), batched=True)
+      inp = dy.inputTensor(np.asarray([[i/1000.0  for i in range(len(sent))],[(len(sent)-i)/1000.0 for i in range(len(sent))]]), batched=True)
       mlp_out = self.positional_mlp(inp)
       encoding = dy.reshape(mlp_out, (self.input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size, len(sent)))
     if self.pos_encoding_type:
