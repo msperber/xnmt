@@ -2,7 +2,8 @@ import logging
 yaml_logger = logging.getLogger('yaml')
 from collections.abc import Sequence
 import math
-
+from functools import lru_cache
+ 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -48,6 +49,20 @@ def get_feat_embeddings(sent_len, W, b):
                                              batched=True)
   encoding = dy.affine_transform([b, W, one_hot_pos_matrix])
   return dy.reshape(encoding, (encoding.dim()[0][0], sent_len),)
+
+@lru_cache(maxsize=1500)
+def get_pos_matrix_indices(sent_len):
+  indices_0 = [i for i in range(sent_len)     for _ in range(sent_len)] * 7
+  indices_1 = [i for i in range(sent_len)     for _ in range(sent_len)] * 7
+  indices_2 = [   log_map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
+              [10+log_map_fnc(max(i-j, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+              [20+log_map_fnc(max(j-i, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+              [30+log_map_fnc(i)              for i in range(sent_len) for j in range(sent_len)] +\
+              [40+log_map_fnc(sent_len-i)     for i in range(sent_len) for j in range(sent_len)] +\
+              [50+log_map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
+              [60+log_map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
+  return indices_0, indices_1, indices_2
+
 
 class MultiHeadedSelfAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
@@ -125,10 +140,8 @@ class MultiHeadedSelfAttention(object):
     if model_dim != input_dim * downsample_factor: self.res_shortcut = PositionwiseLinear(input_dim * downsample_factor, model_dim, model, glorot_gain=glorot_gain)
     
     self.pos_matrix = pos_matrix
-    if pos_matrix=='shallow':
+    if pos_matrix:
       self.pos_matrix_p = model.add_parameters(dim=(1,1,70,self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
-    elif pos_matrix:
-      self.pos_matrix_p = model.add_parameters(dim=(1,1,70,self.dim_per_head*self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
  
     self.cross_pos_encoding_type = cross_pos_encoding_type
     if cross_pos_encoding_type=="embedding":
@@ -247,18 +260,8 @@ class MultiHeadedSelfAttention(object):
 
 #     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
     if self.pos_matrix:
-      # TODO: this is apparently very slow and needs to be re-designed
-      indices_0 = [i for i in range(sent_len) for j in range(sent_len)] * 7
-      indices_1 = [i for i in range(sent_len) for j in range(sent_len)] * 7
-      indices_2 = [   log_map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
-                  [10+log_map_fnc(max(i-j, 0))    for i in range(sent_len) for j in range(sent_len)] +\
-                  [20+log_map_fnc(max(j-i, 0))    for i in range(sent_len) for j in range(sent_len)] +\
-                  [30+log_map_fnc(i)              for i in range(sent_len) for j in range(sent_len)] +\
-                  [40+log_map_fnc(sent_len-i)     for i in range(sent_len) for j in range(sent_len)] +\
-                  [50+log_map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
-                  [60+log_map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
+      indices_0, indices_1, indices_2 = get_pos_matrix_indices(sent_len)
       values = [1.0] * (sent_len * sent_len * 7)
-      #one_hot_pos_matrix = dy.ones((sent_len, sent_len, 70))
       one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
                                                  values,
                                                  shape=(sent_len, sent_len, 70))

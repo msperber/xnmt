@@ -22,7 +22,7 @@ speech-self-att: !Experiment
         ignore_masks: True
         pos_encoding_type: mlp
         #diag_gauss_mask: 3
-        #pos_matrix: y
+        pos_matrix: y
         kq_pos_encoding_type: feat-embedding
         kq_pos_encoding_size: 40
         cross_pos_encoding_type: mlp
