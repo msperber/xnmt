@@ -244,12 +244,12 @@ class PositionEmbedder(Embedder, Serializable):
     param_collection = model or exp_global.dynet_param_collection.param_col
     glorot_gain = glorot_gain or exp_global.glorot_gain 
     init = dy.GlorotInitializer(is_lookup=True, gain=glorot_gain)
-    self.embeddings = param_collection.add_lookup_parameters((max_pos, self.emb_dim),
+    self.embeddings = param_collection.add_parameters((self.emb_dim, max_pos),
                                                              init=init)
 
   def embed_sent(self, sent_len):
-    embeddings = [self.embeddings[min(i, self.max_pos)] for i in range(sent_len)]
-    return ExpressionSequence(expr_list=embeddings, mask=None)
+    embeddings = dy.strided_select(dy.parameter(self.embeddings), [1,1], [0,0], [self.emb_dim, sent_len])
+    return ExpressionSequence(expr_tensor=embeddings, mask=None)
 
   @handle_xnmt_event
   def on_start_sent(self, src):
