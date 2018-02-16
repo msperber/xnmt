@@ -23,6 +23,18 @@ from xnmt.transducer import SeqTransducer, FinalTransducerState
 from xnmt.serialize.serializable import Serializable
 from xnmt.serialize.tree_tools import Ref, Path
 
+def log_map_fnc(v):
+  if v<1: return 0
+  elif v<2: return 1
+  elif v<4: return 2
+  elif v<8: return 3
+  elif v<16: return 4
+  elif v<32: return 5
+  elif v<64: return 6
+  elif v<128: return 7
+  elif v<256: return 8
+  else: return 9
+
 class MultiHeadedSelfAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
                ignore_masks=False, plot_attention=None, diag_gauss_mask=False,
@@ -183,28 +195,17 @@ class MultiHeadedSelfAttention(object):
 
 #     scaled = query_up * dy.transpose(key_up) / math.sqrt(self.dim_per_head)
     if self.pos_matrix=='shallow':
-      def map_fnc(v):
-        if v<1: return 0
-        elif v<2: return 1
-        elif v<4: return 2
-        elif v<8: return 3
-        elif v<16: return 4
-        elif v<32: return 5
-        elif v<64: return 6
-        elif v<128: return 7
-        elif v<256: return 8
-        else: return 9
-      #map_fnc = lambda v: min(10,int(math.log2(1+v)))
+      #log_map_fnc = lambda v: min(10,int(math.log2(1+v)))
       # TODO: this is apparently very slow and needs to be re-designed
       #indices_0 = [i for i in range(sent_len) for j in range(sent_len)] * 7
       #indices_1 = [i for i in range(sent_len) for j in range(sent_len)] * 7
-      #indices_2 = [   map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
-      #            [10+map_fnc(max(i-j, 0))    for i in range(sent_len) for j in range(sent_len)] +\
-      #            [20+map_fnc(max(j-i, 0))    for i in range(sent_len) for j in range(sent_len)] +\
-      #            [30+map_fnc(i)              for i in range(sent_len) for j in range(sent_len)] +\
-      #            [40+map_fnc(sent_len-i)     for i in range(sent_len) for j in range(sent_len)] +\
-      #            [50+map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
-      #            [60+map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
+      #indices_2 = [   log_map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
+      #            [10+log_map_fnc(max(i-j, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+      #            [20+log_map_fnc(max(j-i, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+      #            [30+log_map_fnc(i)              for i in range(sent_len) for j in range(sent_len)] +\
+      #            [40+log_map_fnc(sent_len-i)     for i in range(sent_len) for j in range(sent_len)] +\
+      #            [50+log_map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
+      #            [60+log_map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
       #values = [1.0] * (sent_len * sent_len * 7)
       one_hot_pos_matrix = dy.ones((sent_len, sent_len, 70))
       #one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
@@ -227,16 +228,16 @@ class MultiHeadedSelfAttention(object):
       # 40..49: len-pos_i
       # 50..59: pos_j
       # 60..69: len-pos_j
-      map_fnc = lambda v: min(10,int(math.log2(1+v)))
+      #log_map_fnc = lambda v: min(10,int(math.log2(1+v)))
       indices_0 = [i for i in range(sent_len) for j in range(sent_len)] * 7
       indices_1 = [i for i in range(sent_len) for j in range(sent_len)] * 7
-      indices_2 = [   map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
-                  [10+map_fnc(max(i-j, 0))    for i in range(sent_len) for j in range(sent_len)] +\
-                  [20+map_fnc(max(j-i, 0))    for i in range(sent_len) for j in range(sent_len)] +\
-                  [30+map_fnc(i)              for i in range(sent_len) for j in range(sent_len)] +\
-                  [40+map_fnc(sent_len-i)     for i in range(sent_len) for j in range(sent_len)] +\
-                  [50+map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
-                  [60+map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
+      indices_2 = [   log_map_fnc(math.fabs(i-j)) for i in range(sent_len) for j in range(sent_len)] +\
+                  [10+log_map_fnc(max(i-j, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+                  [20+log_map_fnc(max(j-i, 0))    for i in range(sent_len) for j in range(sent_len)] +\
+                  [30+log_map_fnc(i)              for i in range(sent_len) for j in range(sent_len)] +\
+                  [40+log_map_fnc(sent_len-i)     for i in range(sent_len) for j in range(sent_len)] +\
+                  [50+log_map_fnc(j)              for i in range(sent_len) for j in range(sent_len)] +\
+                  [60+log_map_fnc(sent_len-j)     for i in range(sent_len) for j in range(sent_len)]
       values = [1.0] * (sent_len * sent_len * 7)
       one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
                                                  values,
@@ -449,6 +450,9 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
       self.positional_embedder = PositionEmbedder(max_pos=self.max_len,
                                                   exp_global=exp_global,
                                                   emb_dim=input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size)
+    elif self.pos_encoding_type=="feat-embedding":
+      self.pos_feat_emb_p = param_col.add_parameters((input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size, 20), init=dy.GlorotInitializer(gain=glorot_gain))
+      self.pos_feat_emb_p_b = param_col.add_parameters((input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size), init=dy.ConstInitializer(0.0))
     elif self.pos_encoding_type=="mlp":
       self.positional_mlp = MLP(input_dim=3,
                                 hidden_dim=input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size,
@@ -487,6 +491,18 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
       if self.position_encoding_block is None or self.position_encoding_block.shape[2] < len(sent):
         self.initialize_position_encoding(int(len(sent) * 1.2), self.input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size)
       encoding = dy.inputTensor(self.position_encoding_block[0, :, :len(sent)])
+    elif self.pos_encoding_type == "feat-embedding":
+      indices_0 = [   log_map_fnc(i)           for i in range(len(sent))] +\
+                  [10+log_map_fnc(len(sent)-i) for i in range(len(sent))]
+      indices_1 = [0] * (len(sent) * 2)
+      indices_2 = list(range(len(sent))) * 2
+      values = [1.0] * (len(sent) * 2)
+      one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
+                                                 values,
+                                                 shape=(20, 1, len(sent)),
+                                                 batched=True)
+      encoding = dy.affine_transform([dy.parameter(self.pos_feat_emb_p_b), dy.parameter(self.pos_feat_emb_p), one_hot_pos_matrix])
+      encoding = dy.reshape(encoding, (self.input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size, len(sent)),)
     elif self.pos_encoding_type == "embedding":
       encoding = self.positional_embedder.embed_sent(len(sent)).as_tensor()
     elif self.pos_encoding_type == "mlp":
