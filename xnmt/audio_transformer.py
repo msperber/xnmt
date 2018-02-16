@@ -52,7 +52,7 @@ def get_feat_embeddings(sent_len, W, b):
 class MultiHeadedSelfAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
                ignore_masks=False, plot_attention=None, diag_gauss_mask=False,
-               square_mask_std=False, pos_matrix=False, double_pos_emb=False,
+               square_mask_std=False, pos_matrix=False, cross_pos_encoding_type=None,
                kq_pos_encoding_type=None, kq_pos_encoding_size=40, max_len=1500,
                glorot_gain=1.0, desc=None):
     """
@@ -130,10 +130,24 @@ class MultiHeadedSelfAttention(object):
     elif pos_matrix:
       self.pos_matrix_p = model.add_parameters(dim=(1,1,70,self.dim_per_head*self.head_count), init=dy.GlorotInitializer(gain=glorot_gain))
  
-    self.double_pos_emb = double_pos_emb
-    if double_pos_emb:
-      self.double_pos_emb_p1 = model.add_parameters(dim=(double_pos_emb, self.dim_per_head, self.head_count), init=dy.NormalInitializer(mean=1.0, var=0.001))
-      self.double_pos_emb_p2 = model.add_parameters(dim=(double_pos_emb, self.dim_per_head, self.head_count), init=dy.NormalInitializer(mean=1.0, var=0.001))
+    self.cross_pos_encoding_type = cross_pos_encoding_type
+    if cross_pos_encoding_type=="embedding":
+      self.cross_pos_emb_p1 = model.add_parameters(dim=(self.max_len, self.dim_per_head, self.head_count), init=dy.NormalInitializer(mean=1.0, var=0.001))
+      self.cross_pos_emb_p2 = model.add_parameters(dim=(self.max_len, self.dim_per_head, self.head_count), init=dy.NormalInitializer(mean=1.0, var=0.001))
+    elif cross_pos_encoding_type=="feat-embedding":
+      # initialize to 0.5 because we have 2 activated entries per column so they will add up to 1.
+      self.cross_pos_feat_emb1_p = model.add_parameters((self.dim_per_head * self.head_count, FEAT_ENC_SIZE), init=dy.ConstInitializer(0.5))
+      self.cross_pos_feat_emb1_p_b = model.add_parameters((self.dim_per_head * self.head_count,), init=dy.ConstInitializer(0.0))
+      self.cross_pos_feat_emb2_p = model.add_parameters((self.dim_per_head * self.head_count, FEAT_ENC_SIZE), init=dy.ConstInitializer(0.5))
+      self.cross_pos_feat_emb2_p_b = model.add_parameters((self.dim_per_head * self.head_count,), init=dy.ConstInitializer(0.0))
+    elif cross_pos_encoding_type=="mlp":
+      self.cross_pos_mlp = MLP(input_dim=2,
+                               hidden_dim=self.dim_per_head * self.head_count,
+                               output_dim=self.dim_per_head * self.head_count,
+                               model=model,
+                               layers=1)
+    elif cross_pos_encoding_type is not None: raise NotImplementedError()
+ 
  
   def plot_att_mat(self, mat, filename, dpi=1200):
     fig = plt.figure()
@@ -202,10 +216,17 @@ class MultiHeadedSelfAttention(object):
       v_lin = self.linear_v(TimeDistributed()(x))
       value_up = self.shape_projection(v_lin, batch_size)
       
-      
-    if self.double_pos_emb:
-      emb1 = dy.pick_range(dy.parameter(self.double_pos_emb_p1), 0,sent_len)
-      emb2 = dy.pick_range(dy.parameter(self.double_pos_emb_p2), 0,sent_len)
+    if self.cross_pos_encoding_type:
+      if self.cross_pos_encoding_type=="embedding":
+        emb1 = dy.pick_range(dy.parameter(self.cross_pos_emb_p1), 0, sent_len)
+        emb2 = dy.pick_range(dy.parameter(self.cross_pos_emb_p2), 0, sent_len)
+      elif self.cross_pos_encoding_type=="feat-embedding":
+        emb1_transp = get_feat_embeddings(sent_len, dy.parameter(self.cross_pos_feat_emb1_p), dy.parameter(self.cross_pos_feat_emb1_p_b))
+        emb1 = dy.reshape(dy.transpose(emb1_transp), (sent_len, self.dim_per_head, self.head_count))
+        emb2_transp = get_feat_embeddings(sent_len, dy.parameter(self.cross_pos_feat_emb2_p), dy.parameter(self.cross_pos_feat_emb2_p_b))
+        emb2 = dy.reshape(dy.transpose(emb2_transp), (sent_len, self.dim_per_head, self.head_count))
+      elif self.cross_pos_encoding_type=="mlp":
+        ... # TODO
       key_up = dy.reshape(key_up, (sent_len, self.dim_per_head, self.head_count), batch_size=batch_size)
       key_up = dy.concatenate_cols([dy.cmult(key_up, emb1), dy.cmult(key_up, emb2)])
       key_up = dy.reshape(key_up, (sent_len, self.dim_per_head*2), batch_size=self.head_count*batch_size)
@@ -356,7 +377,7 @@ class TransformerEncoderLayer(object):
   def __init__(self, hidden_dim, exp_global, head_count=8, ff_hidden_dim=2048, downsample_factor=1,
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
-               square_mask_std=False, pos_matrix=False, double_pos_emb=False, ff_window=1,
+               square_mask_std=False, pos_matrix=False, cross_pos_encoding_type=None, ff_window=1,
                ff_lstm=False, kq_pos_encoding_type=None, kq_pos_encoding_size=40, max_len=1500,
                glorot_gain=1.0, dropout=None, desc=None):
     model = exp_global.dynet_param_collection.param_col
@@ -366,7 +387,7 @@ class TransformerEncoderLayer(object):
                                               diag_gauss_mask=diag_gauss_mask, square_mask_std=square_mask_std,
                                               pos_matrix=pos_matrix,
                                               glorot_gain=glorot_gain,
-                                              double_pos_emb=double_pos_emb,
+                                              cross_pos_encoding_type=cross_pos_encoding_type,
                                               kq_pos_encoding_type=kq_pos_encoding_type,
                                               kq_pos_encoding_size=kq_pos_encoding_size,
                                               max_len=max_len,
@@ -445,7 +466,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                pos_encoding_type=None, pos_encoding_combine="concat",
                pos_encoding_size=40, max_len=1500,
                pos_matrix=False, diag_gauss_mask=False, square_mask_std=False,
-               downsampling_method="reshape", double_pos_emb=False, ff_window=1,
+               downsampling_method="reshape", cross_pos_encoding_type=None, ff_window=1,
                ff_lstm=False, kq_pos_encoding_type=None, kq_pos_encoding_size=40, 
                glorot_gain=None):
     """
@@ -481,7 +502,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                 layers=1)
     for layer_i in range(layers):
       if plot_attention is not None:
-        plot_attention_layer = "{}.layer_{}".format(plot_attention, layer_i)
+        plot_attention_layer = f"{plot_attention}.layer_{layer_i}"
       else:
         plot_attention_layer = None
       self.modules.append(TransformerEncoderLayer(hidden_dim, exp_global=exp_global, 
@@ -496,7 +517,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   diag_gauss_mask=diag_gauss_mask,
                                                   square_mask_std=square_mask_std,
                                                   pos_matrix=pos_matrix,
-                                                  double_pos_emb=double_pos_emb,
+                                                  cross_pos_encoding_type=cross_pos_encoding_type,
                                                   ff_lstm=ff_lstm,
                                                   ff_window=ff_window,
                                                   max_len=self.max_len,

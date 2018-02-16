@@ -19,13 +19,13 @@ speech-self-att: !Experiment
         downsample_factor: 2
         mask_self: False
         ff_hidden_dim: 256
-        downsampling_method: reshape
         ignore_masks: True
-        pos_encoding_type: feat-embedding
+        pos_encoding_type: mlp
         #diag_gauss_mask: 3
         #pos_matrix: shallow
         kq_pos_encoding_type: feat-embedding
         kq_pos_encoding_size: 40
+        cross_pos_encoding_type: feat-embedding
         #ff_lstm: True
       - !TransformerSeqTransducer
         layers: 1
