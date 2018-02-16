@@ -35,6 +35,20 @@ def log_map_fnc(v):
   elif v<256: return 8
   else: return 9
 
+FEAT_ENC_SIZE = 20
+def get_feat_embeddings(sent_len, W, b):
+  indices_0 = [   log_map_fnc(i)           for i in range(sent_len)] +\
+              [10+log_map_fnc(sent_len-i)  for i in range(sent_len)]
+  indices_1 = [0] * (sent_len * 2)
+  indices_2 = list(range(sent_len)) * 2
+  values = [1.0] * (sent_len * 2)
+  one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
+                                             values,
+                                             shape=(FEAT_ENC_SIZE, 1, sent_len),
+                                             batched=True)
+  encoding = dy.affine_transform([b, W, one_hot_pos_matrix])
+  return dy.reshape(encoding, (encoding.dim()[0][0], sent_len),)
+
 class MultiHeadedSelfAttention(object):
   def __init__(self, head_count, model_dim, model, downsample_factor=1, input_dim=None, 
                ignore_masks=False, plot_attention=None, diag_gauss_mask=False,
@@ -87,12 +101,16 @@ class MultiHeadedSelfAttention(object):
                                                        model=model,
                                                        emb_dim=self.kq_pos_encoding_size,
                                                        glorot_gain=glorot_gain)
+      elif self.kq_pos_encoding_type=="feat-embedding":
+        self.pos_feat_emb_p = model.add_parameters((self.kq_pos_encoding_size, FEAT_ENC_SIZE), init=dy.GlorotInitializer(gain=glorot_gain))
+        self.pos_feat_emb_p_b = model.add_parameters((self.kq_pos_encoding_size), init=dy.ConstInitializer(0.0))
       elif self.kq_pos_encoding_type=="mlp":
         self.kq_positional_mlp = MLP(input_dim=3,
                                      hidden_dim=self.kq_pos_encoding_size,
                                      output_dim=self.kq_pos_encoding_size,
                                      model=model,
                                      layers=1)
+      else: raise NotImplementedError()
       
     if self.diag_gauss_mask:
       if self.diag_gauss_mask=="rand":
@@ -172,6 +190,8 @@ class MultiHeadedSelfAttention(object):
     else: 
       if self.kq_pos_encoding_type == "embedding":
         encoding = self.kq_positional_embedder.embed_sent(sent_len).as_tensor()
+      elif self.kq_pos_encoding_type == "feat-embedding":
+        encoding = get_feat_embeddings(sent_len, dy.parameter(self.pos_feat_emb_p), dy.parameter(self.pos_feat_emb_p_b))
       elif self.kq_pos_encoding_type == "mlp":
         inp = dy.inputTensor(np.asarray([[i/1000.0  for i in range(sent_len)],[(sent_len-i)/1000.0 for i in range(sent_len)], [(sent_len)/1000.0 for _ in range(sent_len)]] ), batched=True)
         mlp_out = self.kq_positional_mlp(inp)
@@ -451,7 +471,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   exp_global=exp_global,
                                                   emb_dim=input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size)
     elif self.pos_encoding_type=="feat-embedding":
-      self.pos_feat_emb_p = param_col.add_parameters((input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size, 20), init=dy.GlorotInitializer(gain=glorot_gain))
+      self.pos_feat_emb_p = param_col.add_parameters((input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size, FEAT_ENC_SIZE), init=dy.GlorotInitializer(gain=glorot_gain))
       self.pos_feat_emb_p_b = param_col.add_parameters((input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size), init=dy.ConstInitializer(0.0))
     elif self.pos_encoding_type=="mlp":
       self.positional_mlp = MLP(input_dim=3,
@@ -492,17 +512,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
         self.initialize_position_encoding(int(len(sent) * 1.2), self.input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size)
       encoding = dy.inputTensor(self.position_encoding_block[0, :, :len(sent)])
     elif self.pos_encoding_type == "feat-embedding":
-      indices_0 = [   log_map_fnc(i)           for i in range(len(sent))] +\
-                  [10+log_map_fnc(len(sent)-i) for i in range(len(sent))]
-      indices_1 = [0] * (len(sent) * 2)
-      indices_2 = list(range(len(sent))) * 2
-      values = [1.0] * (len(sent) * 2)
-      one_hot_pos_matrix = dy.sparse_inputTensor([indices_0, indices_1, indices_2],
-                                                 values,
-                                                 shape=(20, 1, len(sent)),
-                                                 batched=True)
-      encoding = dy.affine_transform([dy.parameter(self.pos_feat_emb_p_b), dy.parameter(self.pos_feat_emb_p), one_hot_pos_matrix])
-      encoding = dy.reshape(encoding, (self.input_dim if self.pos_encoding_combine=="add" else self.pos_encoding_size, len(sent)),)
+      encoding = get_feat_embeddings(len(sent), dy.parameter(self.pos_feat_emb_p), dy.parameter(self.pos_feat_emb_p_b))
     elif self.pos_encoding_type == "embedding":
       encoding = self.positional_embedder.embed_sent(len(sent)).as_tensor()
     elif self.pos_encoding_type == "mlp":

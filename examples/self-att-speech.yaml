@@ -21,10 +21,10 @@ speech-self-att: !Experiment
         ff_hidden_dim: 256
         downsampling_method: reshape
         ignore_masks: True
-        pos_encoding_type: embedding
+        pos_encoding_type: feat-embedding
         #diag_gauss_mask: 3
         #pos_matrix: shallow
-        kq_pos_encoding_type: embedding
+        kq_pos_encoding_type: feat-embedding
         kq_pos_encoding_size: 40
         #ff_lstm: True
       - !TransformerSeqTransducer
