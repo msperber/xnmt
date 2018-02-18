@@ -17,6 +17,7 @@ parser.add_argument('--vocab', type=str, default="/Users/matthias/Desktop/en-de-
 parser.add_argument('--yaml_log', type=str, default="/Users/matthias/Desktop/165.3.cossim.yaml")
 parser.add_argument('--summarize_yaml', type=str, default="/Users/matthias/Desktop/165.3.cossim.yaml")
 parser.add_argument('--plot', type=str, default="/Users/matthias/Desktop/165.3.png")
+parser.add_argument('--distance', type=str, default="corrcoef") # corrcoef | cosine
 parser.add_argument('--do_summarize', dest='do_summarize', action='store_const',
                     const=True, default=False,)
 parser.add_argument('--do_plot', dest='do_plot', action='store_const',
@@ -80,15 +81,22 @@ if should_summarize_log:
             self_att_ax1 = np.repeat(self_att_ax1, 2)
           for token_i in range(len(vocab)):
             # cross_att_sum.shape = (downsampled_src_len, 1)
+            for i in range(len(sent_log)-1):
+              if sent_log[i]["key"] == "attention":
+                if sent_log[i]["key"] != "forced_dec_id":
+                  raise ValueError("didn't find key 'forced_dec_id' after key 'attention', maybe this was not created using forced decoding?")
             cross_att_sum = np.sum([np.loads(sent_log[i]["value"]) for i in range(len(sent_log)-1) if sent_log[i]["key"]=="attention" and sent_log[i+1]["value"]==token_i],axis=0)
             if cross_att_sum.shape:
               cross_att_sum = np.repeat(cross_att_sum, 2)
-  #             ca0 = np.corrcoef(self_att_ax0, cross_att_sum)[0,1]
-  #             ca1 = np.corrcoef(self_att_ax1, cross_att_sum)[0,1]
+              if args.distance=="corrcoef":
+                ca0 = np.corrcoef(self_att_ax0, cross_att_sum)[0,1]
+                ca1 = np.corrcoef(self_att_ax1, cross_att_sum)[0,1]
+              elif args.distance=="cosine":
 #               ca0 = np.dot(self_att_ax0, cross_att_sum)
 #               ca1 = np.dot(self_att_ax1, cross_att_sum)
-              ca0 = scipy.spatial.distance.cosine(self_att_ax0, cross_att_sum)
-              ca1 = scipy.spatial.distance.cosine(self_att_ax1, cross_att_sum)
+                ca0 = scipy.spatial.distance.cosine(self_att_ax0, cross_att_sum)
+                ca1 = scipy.spatial.distance.cosine(self_att_ax1, cross_att_sum)
+              else: raise ValueError("unknown distance {}".format(args.distance))
               axis0_sum[(layer_i,head_i,vocab[token_i])] += ca0
               axis1_sum[(layer_i,head_i,vocab[token_i])] += ca1
               axis0_cnt[(layer_i,head_i,vocab[token_i])] += 1
