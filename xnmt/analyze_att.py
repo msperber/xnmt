@@ -41,13 +41,13 @@ nheads = 8
 nlayers = 2
 vocab = Vocab(vocab_file = vocab_file)
 
-def plot_mat(mat, filename, x_labels=[], dpi=120):
+def plot_mat(mat, filename, x_labels=[], dpi=120, fontsize=6):
   fig = plt.figure()
   ax = fig.add_subplot(111)
   ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
   ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
-  ax.set_xticklabels(['']+x_labels, fontsize=8, minor=True)
-  ax.set_xticklabels(['']*20, fontsize=8)
+  ax.set_xticklabels(['']+x_labels, fontsize=fontsize, minor=True)
+  ax.set_xticklabels(['']*20, fontsize=fontsize)
   ax.matshow(mat)
   ax.set_aspect('auto')
   fig.savefig(filename, dpi=dpi)

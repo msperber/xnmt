@@ -308,8 +308,8 @@ class MultiHeadedSelfAttention(object):
       # Computing Softmax here.
       attn = dy.softmax(scaled, d=1)
       if settings.LOG_ATTENTION:
-        yaml_logger.info({"key":"selfatt_mat_ax0", "value":np.sum(attn.value(),axis=0).dumps(), "desc":self.desc})
-        yaml_logger.info({"key":"selfatt_mat_ax1", "value":np.sum(attn.value(),axis=1).dumps(), "desc":self.desc})
+        yaml_logger.info({"key":"selfatt_mat_ax0", "value":np.average(attn.value(),axis=0).dumps(), "desc":self.desc})
+        yaml_logger.info({"key":"selfatt_mat_ax1", "value":np.average(attn.value(),axis=1).dumps(), "desc":self.desc})
   
       # Applying dropout to attention
       if p>0.0:
