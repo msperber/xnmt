@@ -17,7 +17,7 @@ parser.add_argument('--vocab', type=str, default="/Users/matthias/Desktop/en-de-
 parser.add_argument('--yaml_log', type=str, default="/Users/matthias/Desktop/165.3.cossim.yaml")
 parser.add_argument('--summarize_yaml', type=str, default="/Users/matthias/Desktop/165.3.cossim.yaml")
 parser.add_argument('--plot', type=str, default="/Users/matthias/Desktop/165.3.png")
-parser.add_argument('--distance', type=str, default="-corrcoef") # corrcoef | cosine | intersection | urelent | urelent2 | spearman
+parser.add_argument('--distance', type=str, default="-corrcoef") # corrcoef | corrcoef2 | cosine | intersection | urelent | urelent2 | spearman
 parser.add_argument('--do_summarize', dest='do_summarize', action='store_const',
                     const=True, default=False,)
 parser.add_argument('--do_plot', dest='do_plot', action='store_const',
@@ -59,12 +59,16 @@ def plot_mat(mat, filename, x_labels=[], dpi=120, fontsize=6):
 def dist(a, b, metric):
   if metric=="corrcoef":
     return -np.corrcoef(a, b)[0,1]
+  if metric=="corrcoef2":
+    return -np.corrcoef(b, a)[0,1]
   elif metric=="cosine":
     return scipy.spatial.distance.cosine(a, b)
   elif metric=="intersection":
     return np.sum(np.minimum(a, b))
   elif metric=="urelent":
     return np.sum(np.multiply(a, np.log(np.divide(a, b)) + b - a))
+  elif metric=="urelent2":
+    return np.sum(np.multiply(b, np.log(np.divide(b, a)) + a - b))
   elif metric=="spearman":
     return -scipy.stats.spearmanr(a, b).correlation
   else: raise ValueError("unknown metric {}".format(metric))
