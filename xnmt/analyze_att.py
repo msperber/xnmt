@@ -1,4 +1,5 @@
 import argparse
+import math
 
 import matplotlib
 matplotlib.use('Agg')
@@ -103,9 +104,22 @@ if should_summarize_log:
               if sent_log[i]["key"] == "attention":
                 if sent_log[i+1]["key"] != "forced_dec_id":
                   raise ValueError("didn't find key 'forced_dec_id' after key 'attention', maybe this was not created using forced decoding?")
-            cross_att_sum = np.sum([np.loads(sent_log[i]["value"]) for i in range(len(sent_log)-1) if sent_log[i]["key"]=="attention" and sent_log[i+1]["value"]==token_i],axis=0)
-            if cross_att_sum.shape:
+            #cross_att_sum = np.sum([np.loads(sent_log[i]["value"]) for i in range(len(sent_log)-1) if sent_log[i]["key"]=="attention" and sent_log[i+1]["value"]==token_i],axis=0)
+            cross_att_sum = None
+            for sent_pos in range(len(sent_log)-1):
+              if sent_log[sent_pos]["key"]=="attention" and sent_log[sent_pos+1]["value"]==token_i:
+                pos_att = np.loads(sent_log[sent_pos]["value"])
+                pos_att_smoothed = np.zeros(pos_att.shape)
+                mu = np.argmax(pos_att, axis=0)
+                sig = 5.0
+                pos_att_smoothed = np.asarray([(1.0/(math.sqrt(2*math.pi*sig**2)))*math.exp(-((i-mu)**2)/(2*sig**2)) for i in range(pos_att.shape[0])])
+                if cross_att_sum is None:
+                  cross_att_sum = pos_att_smoothed
+                else:
+                  cross_att_sum += pos_att_smoothed
+            if cross_att_sum is not None and cross_att_sum.shape:
               cross_att_sum = np.repeat(cross_att_sum, 2)
+              #plot_mat(np.reshape(cross_att_sum, (1,cross_att_sum.shape[0])), plot_file + "." + vocab[token_i].replace("/","_") + ".png")
               if axis0_concat:
                 axis0_concat = np.concatenate((axis0_concat, self_att_ax0))
                 axis1_concat = np.concatenate((axis1_concat, self_att_ax1))
@@ -115,6 +129,7 @@ if should_summarize_log:
                 axis1_concat = self_att_ax1
                 cross_att_sum_concat = cross_att_sum
           if axis0_concat is not None:
+            #plot_mat(np.reshape(axis0_concat, (1,axis0_concat.shape[0])), plot_file + ".head" + str(layer_i) + str(head_i) + ".png")
             ca0 = dist(axis0_concat, cross_att_sum_concat, args.distance)
             axis0_stats[(layer_i,head_i,vocab[token_i])] = float(ca0)
             ca1 = dist(axis1_concat, cross_att_sum_concat, args.distance)
