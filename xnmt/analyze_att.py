@@ -90,8 +90,9 @@ if should_summarize_log:
     for layer_i in range(nlayers):
       for head_i in range(nheads):
         for token_i in range(len(vocab)):
+          cross_att_sum = None
+          axis0_concat, axis1_concat, cross_att_sum_concat = None, None, None 
           for sent_log in sentence_logs:
-            axis0_concat, axis1_concat, cross_att_sum_concat = None, None, None 
             # shape layer 0: (downsampled_src_len*2,)
             # shape layer 1: (downsampled_src_len,)
             self_att_ax0 = np.loads(sent_log[layer_i*2]["value"])[:,head_i]
@@ -105,7 +106,6 @@ if should_summarize_log:
                 if sent_log[i+1]["key"] != "forced_dec_id":
                   raise ValueError("didn't find key 'forced_dec_id' after key 'attention', maybe this was not created using forced decoding?")
             #cross_att_sum = np.sum([np.loads(sent_log[i]["value"]) for i in range(len(sent_log)-1) if sent_log[i]["key"]=="attention" and sent_log[i+1]["value"]==token_i],axis=0)
-            cross_att_sum = None
             for sent_pos in range(len(sent_log)-1):
               if sent_log[sent_pos]["key"]=="attention" and sent_log[sent_pos+1]["value"]==token_i:
                 pos_att = np.loads(sent_log[sent_pos]["value"])
