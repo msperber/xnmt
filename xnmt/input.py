@@ -313,6 +313,7 @@ def read_parallel_corpus(src_reader, trg_reader, src_file, trg_file,
     if src_len_ok and trg_len_ok:
       src_data.append(src_sent)
       trg_data.append(trg_sent)
+  logger.info(f"loaded {len(src_data)} source sentences ({sum([len(s) for s in src_data])} tokens) and {len(trg_data)} target sentences ({sum([len(s) for s in trg_data])} tokens)")
 
   # Pack batches
   if batcher != None:
