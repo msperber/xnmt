@@ -120,14 +120,14 @@ if should_summarize_log:
             if cross_att_sum is not None and cross_att_sum.shape:
               cross_att_sum = np.repeat(cross_att_sum, 2)
               #plot_mat(np.reshape(cross_att_sum, (1,cross_att_sum.shape[0])), plot_file + "." + vocab[token_i].replace("/","_") + ".png")
-              if axis0_concat:
-                axis0_concat = np.concatenate((axis0_concat, self_att_ax0))
-                axis1_concat = np.concatenate((axis1_concat, self_att_ax1))
-                cross_att_sum_concat = np.concatenate((cross_att_sum_concat, cross_att_sum))
-              else:
+              if axis0_concat is None:
                 axis0_concat = self_att_ax0
                 axis1_concat = self_att_ax1
                 cross_att_sum_concat = cross_att_sum
+              else:
+                axis0_concat = np.concatenate((axis0_concat, self_att_ax0))
+                axis1_concat = np.concatenate((axis1_concat, self_att_ax1))
+                cross_att_sum_concat = np.concatenate((cross_att_sum_concat, cross_att_sum))
           if axis0_concat is not None:
             #plot_mat(np.reshape(axis0_concat, (1,axis0_concat.shape[0])), plot_file + ".head" + str(layer_i) + str(head_i) + ".png")
             ca0 = dist(axis0_concat, cross_att_sum_concat, args.distance)
