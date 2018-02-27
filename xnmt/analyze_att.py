@@ -90,9 +90,9 @@ if should_summarize_log:
     for layer_i in range(nlayers):
       for head_i in range(nheads):
         for token_i in range(len(vocab)):
-          cross_att_sum = None
           axis0_concat, axis1_concat, cross_att_sum_concat = None, None, None 
           for sent_log in sentence_logs:
+            cross_att_sum = None
             # shape layer 0: (downsampled_src_len*2,)
             # shape layer 1: (downsampled_src_len,)
             self_att_ax0 = np.loads(sent_log[layer_i*2]["value"])[:,head_i]
