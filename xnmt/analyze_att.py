@@ -8,6 +8,10 @@ import matplotlib.ticker as ticker
 import scipy.spatial.distance
 import scipy.stats
 import numpy as np
+from sklearn.datasets import make_biclusters
+from sklearn.datasets import samples_generator as sg
+from sklearn.cluster.bicluster import SpectralCoclustering
+from sklearn.metrics import consensus_score
 
 import yaml
 
@@ -42,7 +46,7 @@ nheads = 8
 nlayers = 2
 vocab = Vocab(vocab_file = vocab_file)
 
-def plot_mat(mat, filename, x_labels=[], dpi=120, fontsize=6):
+def plot_mat(mat, filename, x_labels=[], dpi=120, fontsize=4):
   fig = plt.figure()
   ax = fig.add_subplot(111)
   ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
@@ -150,11 +154,16 @@ if should_plot:
     valid_vocab = [vocab[k] for k in range(len(vocab)) if any((i,j,vocab[k]) in data for i in range(nlayers) for j in range(nheads))]
     valid_vocab_indices = [k for k in range(len(vocab)) if any((i,j,vocab[k]) in data for i in range(nlayers) for j in range(nheads))]
     mat = np.zeros((nlayers*nheads, len(valid_vocab)))
+    
+    #rearranged_vocab = sorted(valid_vocab)
+    rearranged_vocab = ['AA', 'AH', 'AO', 'AXR', 'AW', 'AX', 'AY', 'AE', 'EH', 'ER', 'EY', 'IH', 'IX', 'IY', 'OY', 'OW', 'UW', 'UH', 'Y', 'B', 'CH', 'D', 'DH', 'F', 'G', 'HH', 'JH', 'K', 'L', 'M', 'N', 'NG', 'P', 'R', 'S', 'SH', 'T', 'TH', 'V', 'W', 'XL', 'XM', 'XN', 'Z', 'ZH', '</s>']
+    rearranged_vi = [rearranged_vocab.index(v) for v in valid_vocab]
+    
     for i in range(nlayers):
       for j in range(nheads):
         for v in valid_vocab:
-          mat[nheads*i+j,valid_vocab.index(v)] = -data[(i,j,v)]
-    plot_mat(mat, plot_file, valid_vocab)
+          mat[nheads*i+j,rearranged_vi[valid_vocab.index(v)]] = -data[(i,j,v)]
+    plot_mat(mat, plot_file, rearranged_vocab)
      
     for i in range(nlayers):
       for j in range(nheads):
@@ -167,20 +176,38 @@ if should_plot:
 # clustering: check
 # - https://stackoverflow.com/questions/2455761/reordering-matrix-elements-to-reflect-column-and-row-clustering-in-naiive-python
 # - http://scikit-learn.org/stable/modules/biclustering.html
-
-#   from sklearn.datasets import make_biclusters
-#   from sklearn.datasets import samples_generator as sg
-#   from sklearn.cluster.bicluster import SpectralCoclustering
-#   from sklearn.metrics import consensus_score
-#   model = SpectralCoclustering(n_clusters=5, random_state=0)
-#   model.fit(yaml_results["axis1_avg_arr"])
-#   fit_data = yaml_results["axis1_avg_arr"][np.argsort(model.row_labels_)]
-#   fit_data = fit_data[:, np.argsort(model.column_labels_)]
-#   fig = plt.figure()
-#   ax = fig.add_subplot(111)
-#   ax.matshow(fit_data)
-#   ax.set_aspect('auto')
-#   fig.savefig("/Users/matthias/Desktop/165.1.cluster.png", dpi=1200)
-#   fig.clf()
-#   plt.close('all')
+  for n_clusters in [3,5,7,10,13,16,20,25,30]:
+    model = SpectralCoclustering(n_clusters=n_clusters, random_state=0)
+    mmat = mat[:8,:]
+    model.fit(mmat)
+    fit_data = mmat[np.argsort(model.row_labels_)]
+    fit_data = fit_data[:, np.argsort(model.column_labels_)]
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
+    ax.set_xticklabels(['']+[rearranged_vocab[i] for i in np.argsort(model.column_labels_)], fontsize=4, minor=True)
+    ax.set_xticklabels(['']*20, fontsize=4)
+    ax.matshow(fit_data)
+    ax.set_aspect('auto')
+    fig.savefig(plot_file + ".clustered.h1.n" + str(n_clusters) + ".png", dpi=600)
+    fig.clf()
+    plt.close('all')
+  
+    model = SpectralCoclustering(n_clusters=n_clusters, random_state=0)
+    mmat = mat[8:,:]
+    model.fit(mmat)
+    fit_data = mmat[np.argsort(model.row_labels_)]
+    fit_data = fit_data[:, np.argsort(model.column_labels_)]
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
+    ax.set_xticklabels(['']+[rearranged_vocab[i] for i in np.argsort(model.column_labels_)], fontsize=4, minor=True)
+    ax.set_xticklabels(['']*20, fontsize=4)
+    ax.matshow(fit_data)
+    ax.set_aspect('auto')
+    fig.savefig(plot_file + ".clustered.h2.n" + str(n_clusters) + ".png", dpi=600)
+    fig.clf()
+    plt.close('all')
 
