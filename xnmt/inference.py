@@ -64,18 +64,17 @@ class SimpleInference(Serializable):
     :param candidate_id_file: if we are doing something like retrieval where we select from fixed candidates, sometimes we want to limit our candidates to a certain subset of the full set. this setting allows us to do this.
     :param model_elements: If None, the model will be loaded from model_file. If set, should equal (corpus_parser, generator).
     """
-    args = dict(model_file=self.model_file, src_file=src_file or self.src_file, trg_file=trg_file or self.trg_file, ref_file=self.ref_file, max_src_len=self.max_src_len,
-                  input_format=self.input_format, post_process=self.post_process, candidate_id_file=candidate_id_file, report_path=self.report_path, report_type=self.report_type,
-                  beam=self.beam, max_len=self.max_len, len_norm_type=self.len_norm_type, mode=self.mode)
+    src_file=src_file or self.src_file
+    trg_file=trg_file or self.trg_file
 
-    is_reporting = issubclass(generator.__class__, Reportable) and args["report_path"] is not None
+    is_reporting = issubclass(generator.__class__, Reportable) and self.report_path is not None
     # Corpus
-    src_corpus = list(generator.src_reader.read_sents(args["src_file"]))
+    src_corpus = list(generator.src_reader.read_sents(src_file))
     # Get reference if it exists and is necessary
-    if args["mode"] == "forced" or args["mode"] == "forceddebug":
-      if args["ref_file"] == None:
-        raise RuntimeError("When performing {} decoding, must specify reference file".format(args["mode"]))
-      ref_corpus = list(generator.trg_reader.read_sents(args["ref_file"]))
+    if self.mode in ["forced", "forceddebug"]:
+      if self.ref_file == None:
+        raise RuntimeError("When performing {} decoding, must specify reference file".format(self.mode))
+      ref_corpus = list(generator.trg_reader.read_sents(self.ref_file))
       if self.max_len and any(len(s)>self.max_len for s in ref_corpus):
         logger.warning("Forced decoding with some targets being longer than max_len. Increase max_len to avoid unexpected behavior.")
     else:
@@ -85,7 +84,9 @@ class SimpleInference(Serializable):
     trg_vocab = generator.trg_reader.vocab if hasattr(generator.trg_reader, "vocab") else None
     # Perform initialization
     generator.set_train(False)
-    generator.initialize_generator(**args)
+    generator.initialize_generator(model_file=self.model_file, src_file=src_file, trg_file=trg_file, ref_file=self.ref_file, max_src_len=self.max_src_len,
+                                   input_format=self.input_format, post_process=self.post_process, candidate_id_file=candidate_id_file, report_path=self.report_path, 
+                                   report_type=self.report_type, beam=self.beam, max_len=self.max_len, len_norm_type=self.len_norm_type, mode=self.mode)
 
     if hasattr(generator, "set_post_processor"):
       generator.set_post_processor(self.get_output_processor())
@@ -100,7 +101,7 @@ class SimpleInference(Serializable):
 
     # If we're debugging, calculate the loss for each target sentence
     ref_scores = None
-    if args["mode"] == 'forceddebug':
+    if self.mode == 'forceddebug':
       some_batcher = self.batcher or xnmt.batcher.InOrderBatcher(32) # Arbitrary
       if not isinstance(some_batcher, xnmt.batcher.InOrderBatcher):
         raise ValueError(f"forceddebug requires InOrderBatcher, got: {some_batcher}")
@@ -116,7 +117,7 @@ class SimpleInference(Serializable):
       ref_scores = [-x for x in ref_scores]
 
     # Perform generation of output
-    with io.open(args["trg_file"], 'wt', encoding='utf-8') as fp:  # Saving the translated output to a trg file
+    with io.open(trg_file, 'wt', encoding='utf-8') as fp:  # Saving the translated output to a trg file
       src_ret=[]
       for i, src in enumerate(src_corpus):
         # This is necessary when the batcher does some sort of pre-processing, e.g.
@@ -126,7 +127,7 @@ class SimpleInference(Serializable):
           src = src_ret.pop()[0]
 
         # Do the decoding
-        if args["max_src_len"] is not None and len(src) > args["max_src_len"]:
+        if self.max_src_len is not None and len(src) > self.max_src_len:
           output_txt = NO_DECODING_ATTEMPTED
         else:
           dy.renew_cg(immediate_compute=settings.IMMEDIATE_COMPUTE, check_validity=settings.CHECK_VALIDITY)

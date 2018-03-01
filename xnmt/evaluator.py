@@ -134,7 +134,26 @@ class RecallScore(WERScore, Serializable):
     return self.recall
 
   def metric_name(self):
-    return "Recall" + str(self.nbest)
+    return f"Recall{self.nbest}"
+
+class AccuracyScore(WERScore, Serializable):
+  yaml_tag = "!AccuracyScore"
+  def __init__(self, accuracy, hyp_len, ref_len, desc=None):
+    self.accuracy = accuracy
+    self.hyp_len  = hyp_len
+    self.ref_len  = ref_len
+    self.desc     = desc
+    self.serialize_params = {"accuracy" : accuracy, "hyp_len" : hyp_len, "ref_len" : ref_len}
+    if desc is not None: self.serialize_params["desc"] = desc
+
+  def score_str(self):
+    return "{:.2f}%".format(self.value() * 100.0)
+
+  def value(self):
+    return self.accuracy
+
+  def metric_name(self):
+    return "Accuracy"
 
 class ExternalScore(EvalScore, Serializable):
   yaml_tag = "!ExternalScore"
@@ -498,7 +517,7 @@ class RecallEvaluator(object):
     self.desc = desc
 
   def metric_name(self):
-    return "Recall{}".format(str(self.nbest))
+    return f"Recall{str(self.nbest)}"
 
   def evaluate(self, ref, hyp):
     true_positive = 0
@@ -507,6 +526,17 @@ class RecallEvaluator(object):
         true_positive += 1
     score = true_positive / float(len(ref))
     return RecallScore(score, len(hyp), len(ref), nbest=self.nbest, desc=self.desc)
+
+class AccuracyEvaluator(object):
+  def __init__(self, desc=None):
+    self.desc = desc
+
+  def metric_name(self):
+    return "Accuracy"
+
+  def evaluate(self, ref, hyp):
+    score = sum([hyp_i==ref_i for hyp_i, ref_i in zip(hyp, ref)]) / float(len(ref))
+    return AccuracyScore(score, len(hyp), len(ref), desc=self.desc)
 
 class MeanAvgPrecisionEvaluator(object):
   def __init__(self, nbest=5, desc=None):
