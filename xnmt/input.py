@@ -281,7 +281,10 @@ class IDReader(BaseTextReader, Serializable):
   yaml_tag = u"!IDReader"
 
   def read_sents(self, filename, filter_ids=None):
-    return map(lambda l: int(l.strip()), self.iterate_filtered(filename, filter_ids))
+    try:
+      return map(lambda l: int(l.strip()), self.iterate_filtered(filename, filter_ids))
+    except ValueError:
+      return map(lambda l: int(l.strip()), self.iterate_filtered(filename, filter_ids))
 
   def count_words(self, trg_words):
     return 1
@@ -316,7 +319,8 @@ def read_parallel_corpus(src_reader, trg_reader, src_file, trg_file,
     if src_len_ok and trg_len_ok:
       src_data.append(src_sent)
       trg_data.append(trg_sent)
-  logger.info(f"loaded {len(src_data)} source sentences ({sum([len(s) for s in src_data])} tokens) and {len(trg_data)} target sentences ({sum([len(s) for s in trg_data])} tokens)")
+  logger.info(f"loaded {len(src_data)} source sentences ({sum([len(s) for s in src_data]) if hasattr(src_data[0],'__len__') else len(src_data)} tokens) "
+              f"and {len(trg_data)} target sentences ({sum([len(s) for s in trg_data]) if hasattr(trg_data[0],'__len__') else len(trg_data)} tokens)")
 
   # Pack batches
   if batcher != None:

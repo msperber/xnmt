@@ -14,6 +14,7 @@ import xnmt.output
 from xnmt.reports import Reportable
 from xnmt.serialize.serializable import Serializable
 from xnmt.serialize.tree_tools import Ref, Path
+from xnmt.preproc_runner import make_parent_dir
 
 '''
 This will be the main class to perform decoding.
@@ -120,6 +121,7 @@ class SimpleInference(Serializable):
       ref_scores = [-x for x in ref_scores]
 
     # Perform generation of output
+    make_parent_dir(trg_file)
     with io.open(trg_file, 'wt', encoding='utf-8') as fp:  # Saving the translated output to a trg file
       src_ret=[]
       for i, src in enumerate(src_corpus):
