@@ -310,6 +310,14 @@ class MultiHeadedSelfAttention(object):
       if settings.LOG_ATTENTION:
         yaml_logger.info({"key":"selfatt_mat_ax0", "value":np.average(attn.value(),axis=0).dumps(), "desc":self.desc})
         yaml_logger.info({"key":"selfatt_mat_ax1", "value":np.average(attn.value(),axis=1).dumps(), "desc":self.desc})
+      
+      self.select_att_head = 0
+      if self.select_att_head is not None:
+        attn = dy.reshape(attn, (sent_len, sent_len, self.head_count), batch_size=batch_size)
+        sel_mask = np.zeros((1,1,self.head_count))
+        sel_mask[0,0,self.select_att_head] = 1.0
+        attn = dy.cmult(attn, dy.inputTensor(sel_mask))
+        attn = dy.reshape(attn, (sent_len, sent_len), batch_size = self.head_count * batch_size)
   
       # Applying dropout to attention
       if p>0.0:
