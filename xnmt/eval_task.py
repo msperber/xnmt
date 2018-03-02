@@ -27,6 +27,8 @@ class LossEvalTask(Serializable):
                 batcher=Ref(path=Path("train.batcher"), required=False),
                 loss_calculator=None, max_src_len=None, max_trg_len=None,
                 max_num_sents=None, desc=None):
+    if model is None:
+      raise ValueError("model given to LossEvalTask was None, please specify explicitly.")
     self.model = model
     self.loss_calculator = loss_calculator or LossCalculator(MLELoss())
     self.src_file = src_file
@@ -76,6 +78,8 @@ class AccuracyEvalTask(Serializable):
   def __init__(self, src_file, ref_file, hyp_file, model=Ref(path=Path("model")),
                eval_metrics="bleu", inference=None, candidate_id_file=None,
                desc=None):
+    if model is None:
+      raise ValueError("model given to AccuracyEvalTask was None, please specify explicitly.")
     self.model = model
     self.eval_metrics = [s.lower() for s in eval_metrics.split(",")]
     self.src_file = src_file
