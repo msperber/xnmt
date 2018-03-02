@@ -3,6 +3,7 @@
 import xnmt.attender
 import xnmt.audio_transformer
 import xnmt.batcher
+import xnmt.classifier
 import xnmt.conv
 import xnmt.decoder
 import xnmt.embedder

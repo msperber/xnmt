@@ -283,6 +283,9 @@ class IDReader(BaseTextReader, Serializable):
   def read_sents(self, filename, filter_ids=None):
     return map(lambda l: int(l.strip()), self.iterate_filtered(filename, filter_ids))
 
+  def count_words(self, trg_words):
+    return 1
+
 ###### A utility function to read a parallel corpus
 def read_parallel_corpus(src_reader, trg_reader, src_file, trg_file,
                          batcher=None, sample_sents=None, max_num_sents=None, max_src_len=None, max_trg_len=None):

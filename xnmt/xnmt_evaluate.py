@@ -3,8 +3,9 @@ logger = logging.getLogger('xnmt')
 import sys
 import io
 import ast
+from collections.abc import Sequence
 
-from xnmt.evaluator import BLEUEvaluator, GLEUEvaluator, WEREvaluator, CEREvaluator, RecallEvaluator, ExternalEvaluator, MeanAvgPrecisionEvaluator
+from xnmt.evaluator import BLEUEvaluator, GLEUEvaluator, WEREvaluator, CEREvaluator, AccuracyEvaluator, RecallEvaluator, ExternalEvaluator, MeanAvgPrecisionEvaluator
 from xnmt.inference import NO_DECODING_ATTEMPTED
 
 """
@@ -43,6 +44,7 @@ def xnmt_evaluate(ref_file=None, hyp_file=None, evaluator="bleu", desc=None):
 
   hyp_postprocess = lambda line: line.split()
   ref_postprocess = lambda line: line.split()
+  # TODO: use Yaml '!' syntax to configure eval types
   if eval_type == "bleu":
     ngram = int(eval_param.get("ngram", 4))
     evaluator = BLEUEvaluator(ngram=int(ngram), desc=desc)
@@ -54,6 +56,10 @@ def xnmt_evaluate(ref_file=None, hyp_file=None, evaluator="bleu", desc=None):
     evaluator = WEREvaluator(desc=desc)
   elif eval_type == "cer":
     evaluator = CEREvaluator(desc=desc)
+  elif eval_type == "accuracy":
+    hyp_postprocess = lambda x: eval_or_empty_list(x)
+    ref_postprocess = lambda x: int(x)
+    evaluator = AccuracyEvaluator(desc=desc)
   elif eval_type == "recall":
     nbest = int(eval_param.get("nbest", 5))
     hyp_postprocess = lambda x: eval_or_empty_list(x)
@@ -73,14 +79,14 @@ def xnmt_evaluate(ref_file=None, hyp_file=None, evaluator="bleu", desc=None):
     evaluator = ExternalEvaluator(path=path, higher_better=higher_better, desc=desc)
 
   else:
-    raise RuntimeError("Unknown evaluation metric {}".format(eval_type))
+    raise RuntimeError(f"Unknown evaluation metric {eval_type}")
 
   ref_corpus = read_data(args["ref_file"], post_process=ref_postprocess)
   hyp_corpus = read_data(args["hyp_file"], post_process=hyp_postprocess)
   len_before = len(hyp_corpus)
-  ref_corpus, hyp_corpus = zip(*filter(lambda x: NO_DECODING_ATTEMPTED not in x[1], zip(ref_corpus, hyp_corpus)))
+  ref_corpus, hyp_corpus = zip(*filter(lambda x: (isinstance(x[1], Sequence) and NO_DECODING_ATTEMPTED not in x[1]) or x[1]!=NO_DECODING_ATTEMPTED, zip(ref_corpus, hyp_corpus)))
   if len(ref_corpus) < len_before:
-    logger.info("> ignoring %s out of %s test sentences." % (len_before - len(ref_corpus), len_before))
+    logger.info(f"> ignoring {len_before - len(ref_corpus)} out of {len_before} test sentences.")
 
   eval_score = evaluator.evaluate(ref_corpus, hyp_corpus)
   return eval_score

@@ -1,5 +1,3 @@
-from __future__ import division, generators
-
 import six
 import io
 import dynet as dy
@@ -176,7 +174,7 @@ class DefaultTranslator(Translator, Serializable, Reportable):
         elif type(attentions) == list:
           attentions = np.concatenate([x.npvalue() for x in attentions], axis=1)
         elif type(attentions) != np.ndarray:
-          raise RuntimeError("Illegal type for attentions in translator report: {}".format(type(attentions)))
+          raise RuntimeError(f"Illegal type for attentions in translator report: {type(attentions)}")
         # Segmentation
         segment = self.get_report_resource("segmentation")
         if segment is not None:
