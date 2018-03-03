@@ -1,4 +1,3 @@
-import six
 import io
 import dynet as dy
 import numpy as np
@@ -178,7 +177,7 @@ class DefaultTranslator(Translator, Serializable, Reportable):
         # Segmentation
         segment = self.get_report_resource("segmentation")
         if segment is not None:
-          segment = list(six.moves.map(lambda x: int(x[0]), segment))
+          segment = [int(x[0]) for x in segment]
           src_inp = [x[0] for x in self.encoder.apply_segmentation(src_words, segment)]
         else:
           src_inp = src_words
@@ -231,7 +230,7 @@ class DefaultTranslator(Translator, Serializable, Reportable):
     # Generating main content
     captions = [u"Source Words", u"Target Words"]
     inputs = [src, trg]
-    for caption, inp in six.moves.zip(captions, inputs):
+    for caption, inp in zip(captions, inputs):
       if inp is None: continue
       sent = ' '.join(inp)
       p = etree.SubElement(main_content, 'p')

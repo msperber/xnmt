@@ -51,7 +51,6 @@ speech-2layers: !Experiment
         hyp_file: examples/output/{EXP}.dev_hyp
         inference: !SimpleInference
           post_process: join-char
-          max_num_sents: 2
           report_path: examples/output/report.{EXP}
   evaluate:
     - !AccuracyEvalTask

@@ -1,4 +1,7 @@
 import unittest
+import sys
+
+if not any(a.startswith("--settings") for a in sys.argv): sys.argv.insert(1, "--settings=settings.unittest")
 
 import numpy as np
 import dynet as dy
