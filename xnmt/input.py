@@ -281,10 +281,7 @@ class IDReader(BaseTextReader, Serializable):
   yaml_tag = u"!IDReader"
 
   def read_sents(self, filename, filter_ids=None):
-    try:
-      return map(lambda l: int(l.strip()), self.iterate_filtered(filename, filter_ids))
-    except ValueError:
-      return map(lambda l: int(l.strip()), self.iterate_filtered(filename, filter_ids))
+    return map(lambda l: int(l.strip()), self.iterate_filtered(filename, filter_ids))
 
   def count_words(self, trg_words):
     return 1

@@ -211,7 +211,7 @@ class YamlSerializer(object):
               if path_from!=path_to and matching_node is node:
                   ref = tree_tools.Ref(path=path_to)
                   ref.resolved_serialize_params = ref.serialize_params
-                  tree_tools.set_descendant(root, path_from.parent().append("resolved_serialize_params").append(path_from[-1]), ref)
+                  tree_tools.set_resolved_serialize_param(tree_tools.get_descendant(root, path_from.parent()), root, path_from, ref)
                   refs_inserted_at.add(path_from)
                   refs_inserted_to.add(path_from)
 

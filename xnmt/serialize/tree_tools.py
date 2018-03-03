@@ -175,7 +175,8 @@ def get_child_dict(node, name):
   return node[name]
 @get_child.register(Serializable)
 def get_child_serializable(node, name):
-  if not hasattr(node, name): raise PathError(f"{node} has not child named {name}")
+  if not hasattr(node, name):
+    raise PathError(f"{node} has not child named {name}")
   return getattr(node,name)
 
 @singledispatch
@@ -196,6 +197,13 @@ def set_child_list(node, name, val):
 @set_child.register(dict)
 def set_child_dict(node, name, val):
   node[name] = val
+
+@singledispatch
+def set_resolved_serialize_param(node, root, path, val):
+  set_descendant(root, path, val)
+@set_resolved_serialize_param.register(Serializable)
+def set_resolved_serialize_param_serializable(node, root, path, val):
+  set_descendant(root, path.parent().append("resolved_serialize_params").append(path[-1]), val)
 
 def get_descendant(node, path):
   if len(path)==0:
