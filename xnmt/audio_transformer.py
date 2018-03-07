@@ -17,7 +17,7 @@ from simple_settings import settings
 from xnmt.embedder import PositionEmbedder
 from xnmt.expression_sequence import ExpressionSequence
 from xnmt.events import register_handler, handle_xnmt_event
-from xnmt.lstm import BiLSTMSeqTransducer
+from xnmt.lstm import BiLSTMSeqTransducer, NetworkInNetworkBiLSTMTransducer
 from xnmt.mlp import MLP
 from xnmt.nn import LayerNorm, Linear, PositionwiseFeedForward, TimeDistributed, PositionwiseLinear, PositionwiseConv
 from xnmt.transducer import SeqTransducer, FinalTransducerState
@@ -373,7 +373,7 @@ class TransformerEncoderLayer(object):
                input_dim=None, diagonal_mask_width=None, mask_self=False, ignore_masks=False,
                plot_attention=None, nonlinearity="rectify", diag_gauss_mask=False,
                square_mask_std=False, pos_matrix=False, cross_pos_encoding_type=None, ff_window=1,
-               ff_lstm=False, kq_pos_encoding_type=None, kq_pos_encoding_size=40, max_len=1500,
+               ff_lstm=False, ff_nin=False, kq_pos_encoding_type=None, kq_pos_encoding_size=40, max_len=1500,
                glorot_gain=1.0, dropout=None, skip_attention=False, desc=None):
     model = exp_global.dynet_param_collection.param_col
     self.self_attn = MultiHeadedSelfAttention(head_count, hidden_dim, model, downsample_factor, 
@@ -394,6 +394,10 @@ class TransformerEncoderLayer(object):
       self.feed_forward = BiLSTMSeqTransducer(exp_global, layers=1, input_dim=hidden_dim,
                                               hidden_dim=hidden_dim, dropout=dropout,
                                               glorot_gain=glorot_gain)
+    elif ff_nin:
+      self.feed_forward = NetworkInNetworkBiLSTMTransducer(exp_global, layers=1, input_dim=hidden_dim,
+                                              hidden_dim=hidden_dim, batch_norm=True, dropout=dropout,
+                                              glorot_gain_lstm=glorot_gain, glorot_gain_nin=glorot_gain)
     elif ff_window==1:
       self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity,
                                                 glorot_gain=glorot_gain)
@@ -463,7 +467,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                pos_encoding_size=40, max_len=1500,
                pos_matrix=False, diag_gauss_mask=False, square_mask_std=False,
                downsampling_method="reshape", cross_pos_encoding_type=None, ff_window=1,
-               ff_lstm=False, kq_pos_encoding_type=None, kq_pos_encoding_size=40, 
+               ff_lstm=False, ff_nin=False, kq_pos_encoding_type=None, kq_pos_encoding_size=40, 
                skip_attention=False, glorot_gain=None):
     """
     :param pos_encoding_type: None, trigonometric, embedding, mlp, feat-embedding
@@ -515,6 +519,7 @@ class TransformerSeqTransducer(SeqTransducer, Serializable):
                                                   pos_matrix=pos_matrix,
                                                   cross_pos_encoding_type=cross_pos_encoding_type,
                                                   ff_lstm=ff_lstm,
+                                                  ff_nin=ff_nin,
                                                   ff_window=ff_window,
                                                   max_len=self.max_len,
                                                   kq_pos_encoding_type=kq_pos_encoding_type,
