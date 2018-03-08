@@ -390,6 +390,7 @@ class TransformerEncoderLayer(object):
                                               desc=desc)
     self.ff_window = ff_window
     self.ff_lstm = ff_lstm
+    self.ff_nin = ff_nin
     if ff_lstm:
       self.feed_forward = BiLSTMSeqTransducer(exp_global, layers=1, input_dim=hidden_dim,
                                               hidden_dim=hidden_dim, dropout=dropout,
@@ -439,7 +440,7 @@ class TransformerEncoderLayer(object):
     out_mask = x.mask
     if self.downsample_factor > 1 and out_mask is not None:
       out_mask = out_mask.lin_subsampled(reduce_factor = self.downsample_factor)
-    if self.ff_lstm:
+    if self.ff_lstm or self.ff_nin:
       mid_re = dy.reshape(mid, (hidden_dim, seq_len), batch_size=batch_size)
       out = self.feed_forward(ExpressionSequence(expr_tensor=mid_re, mask=out_mask))
       out = dy.reshape(out.as_tensor(), (hidden_dim,), batch_size=seq_len*batch_size)
