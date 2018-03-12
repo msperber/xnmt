@@ -397,7 +397,7 @@ class TransformerEncoderLayer(object):
                                               glorot_gain=glorot_gain)
     elif ff_nin:
       self.feed_forward = NetworkInNetworkBiLSTMTransducer(exp_global=exp_global, layers=1, input_dim=hidden_dim,
-                                              hidden_dim=hidden_dim, batch_norm=True, dropout=dropout,
+                                              hidden_dim=hidden_dim, batch_norm=False, dropout=dropout,
                                               glorot_gain_lstm=glorot_gain, glorot_gain_nin=glorot_gain)
     elif ff_window==1:
       self.feed_forward = PositionwiseFeedForward(hidden_dim, ff_hidden_dim, model, nonlinearity=nonlinearity,
