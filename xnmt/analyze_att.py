@@ -197,6 +197,10 @@ if should_plot:
         for v in valid_vocab:
           mat[nheads*i+j,rearranged_vi[valid_vocab.index(v)]] = -data[(i,j,v)]
     plot_mat(mat, plot_file, rearranged_vocab)
+    
+    for i in range(16):
+#       print("entropy", i+1, entropy(np.maximum(0.0,mat[i])))
+      print("entropy", i+1, entropy((mat[i]+1)/2))
      
     for i in range(nlayers):
       for j in range(nheads):
