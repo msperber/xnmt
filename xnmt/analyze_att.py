@@ -12,6 +12,7 @@ from sklearn.datasets import make_biclusters
 from sklearn.datasets import samples_generator as sg
 from sklearn.cluster.bicluster import SpectralCoclustering
 from sklearn.metrics import consensus_score
+from scipy.stats import entropy
 
 import yaml
 
@@ -27,6 +28,8 @@ parser.add_argument('--do_summarize', dest='do_summarize', action='store_const',
                     const=True, default=False,)
 parser.add_argument('--do_plot', dest='do_plot', action='store_const',
                     const=True, default=False,)
+parser.add_argument('--do_entropy', dest='do_entropy', action='store_const',
+                    const=True, default=False,)
 args = parser.parse_args()
 
 # vocab_file = "/project/data-audio/tedlium-multi/parallel/vocab/en-de-es-fr.lc.no-numbers-punct.vocab"
@@ -41,6 +44,7 @@ plot_file = args.plot # "/Users/matthias/Desktop/165.3.png"
 
 should_summarize_log = args.do_summarize
 should_plot = args.do_plot
+should_do_entropy = args.do_entropy
 
 nheads = 8
 nlayers = 2
@@ -78,6 +82,35 @@ def dist(a, b, metric):
     return -scipy.stats.spearmanr(a, b).correlation
   else: raise ValueError("unknown metric {}".format(metric))
 
+if should_do_entropy:
+  with open(yaml_log_file, 'r') as f:
+    yaml_log = yaml.load(f)
+    sentence_logs = [[]]
+    prev_key = None
+    for entry in yaml_log:
+      cur_key = entry["key"]
+      if prev_key == 'forced_dec_id' and cur_key == 'selfatt_mat_ax0':
+        sentence_logs.append([])
+      sentence_logs[-1].append(entry)
+      prev_key = cur_key
+      
+    axis0_stats, axis1_stats = {}, {}
+    for layer_i in range(nlayers):
+      for head_i in range(nheads):
+        axis0_concat, axis1_concat = None, None
+        for sent_log in sentence_logs:
+          # shape layer 0: (downsampled_src_len*2,)
+          # shape layer 1: (downsampled_src_len,)
+          self_att_ax0 = np.loads(sent_log[layer_i*2]["value"])[:,head_i]
+          self_att_ax1 = np.loads(sent_log[layer_i*2+1]["value"])[:,head_i]
+          if axis0_concat is None:
+            axis0_concat = self_att_ax0
+            axis1_concat = self_att_ax1
+          else:
+            axis0_concat = np.concatenate((axis0_concat, self_att_ax0))
+            axis1_concat = np.concatenate((axis1_concat, self_att_ax1))
+        print("layer", layer_i, "head", head_i, "entropy", entropy(axis0_concat), entropy(axis1_concat))
+            
 if should_summarize_log:
   with open(yaml_log_file, 'r') as f:
     yaml_log = yaml.load(f)
