@@ -22,6 +22,7 @@ import sys
 import glob
 
 sys.path.insert(0, os.path.abspath('.'))
+sys.path.insert(0, os.path.abspath('..'))
 sys.path.insert(0, os.path.abspath('../build/xnmt'))
 import doc_util
 
