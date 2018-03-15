@@ -4,6 +4,14 @@ API Doc
 Experiment
 ----------
 
+.. autoclass:: Experiment
+   :members:
+   :show-inheritance:
+
+.. autoclass:: experiment.Experiment
+   :members:
+   :show-inheritance:
+
 .. autoclass:: xnmt.experiment.Experiment
    :members:
    :show-inheritance:
