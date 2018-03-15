@@ -311,8 +311,8 @@ class MultiHeadedSelfAttention(object):
       if settings.LOG_ATTENTION:
         yaml_logger.info({"key":"selfatt_mat_ax0", "value":np.average(attn.value(),axis=0).dumps(), "desc":self.desc})
         yaml_logger.info({"key":"selfatt_mat_ax1", "value":np.average(attn.value(),axis=1).dumps(), "desc":self.desc})
-        yaml_logger.info({"key":"selfatt_mat_ax0_ent", "value":entropy(attn.value(),axis=0).dumps(), "desc":self.desc})
-        yaml_logger.info({"key":"selfatt_mat_ax1_ent", "value":entropy(attn.value(),axis=1).dumps(), "desc":self.desc})
+        yaml_logger.info({"key":"selfatt_mat_ax0_ent", "value":entropy(attn.value()).dumps(), "desc":self.desc})
+        yaml_logger.info({"key":"selfatt_mat_ax1_ent", "value":entropy(attn.value().transpose()).dumps(), "desc":self.desc})
       
       self.select_att_head = 0
       if self.select_att_head is not None:
