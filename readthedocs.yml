@@ -1,16 +1,12 @@
 formats:
-    - pdf
+   - pdf
 
 requirements_file: doc/requirements.txt
 
 build:
-    image: latest
+   image: latest
 
 python:
-    version: 3.6
-
-python:
-   setup_py_install: false
-
-python:
+   version: 3.6
+   #setup_py_install: false
    pip_install: true
