@@ -10,7 +10,7 @@ python:
     version: 3.6
 
 python:
-   setup_py_install: true
+   setup_py_install: false
 
 python:
    pip_install: true
