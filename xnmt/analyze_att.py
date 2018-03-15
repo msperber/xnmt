@@ -1,5 +1,6 @@
 import argparse
 import math
+from collections import defaultdict
 
 import matplotlib
 matplotlib.use('Agg')
@@ -26,6 +27,8 @@ parser.add_argument('--plot', type=str, default="/Users/matthias/Desktop/165.3.p
 parser.add_argument('--distance', type=str, default="-corrcoef") # corrcoef | corrcoef2 | cosine | intersection | urelent | urelent2 | spearman
 parser.add_argument('--do_summarize', dest='do_summarize', action='store_const',
                     const=True, default=False,)
+parser.add_argument('--do_queries', dest='do_queries', action='store_const',
+                    const=True, default=False,)
 parser.add_argument('--do_plot', dest='do_plot', action='store_const',
                     const=True, default=False,)
 parser.add_argument('--do_entropy', dest='do_entropy', action='store_const',
@@ -43,6 +46,7 @@ summarized_yaml_file = args.summarize_yaml # "/Users/matthias/Desktop/165.3.coss
 plot_file = args.plot # "/Users/matthias/Desktop/165.3.png"
 
 should_summarize_log = args.do_summarize
+should_summarize_queries = args.do_queries
 should_plot = args.do_plot
 should_do_entropy = args.do_entropy
 
@@ -110,7 +114,7 @@ if should_do_entropy:
             axis0_concat = np.concatenate((axis0_concat, self_att_ax0))
             axis1_concat = np.concatenate((axis1_concat, self_att_ax1))
         print("layer", layer_i, "head", head_i, "entropy", entropy(axis0_concat), entropy(axis1_concat))
-            
+
 if should_summarize_log:
   with open(yaml_log_file, 'r') as f:
     yaml_log = yaml.load(f)
@@ -179,6 +183,71 @@ if should_summarize_log:
       "axis0_stats":axis0_stats,
       "axis1_stats":axis1_stats,
       }))
+
+if should_summarize_queries:
+  with open(yaml_log_file, 'r') as f:
+    yaml_log = yaml.load(f)
+    sentence_logs = [[]]
+    prev_key = None
+    for entry in yaml_log:
+      cur_key = entry["key"]
+      if prev_key == 'forced_dec_id' and cur_key == 'selfatt_mat_ax0':
+        sentence_logs.append([])
+      sentence_logs[-1].append(entry)
+      prev_key = cur_key
+      
+    axis0_stats, axis1_stats = {}, {}
+    for layer_i in range(nlayers):
+      for head_i in range(nheads):
+        token_occurrences = defaultdict([])
+        for token_i in range(len(vocab)):
+          axis0_concat, axis1_concat, cross_att_sum_concat = None, None, None 
+          for sent_i, sent_log in enumerate(sentence_logs):
+            cross_att_sum = None
+            # shape layer 0: (downsampled_src_len*2,)
+            # shape layer 1: (downsampled_src_len,)
+            self_att_ax0 = np.loads(sent_log[layer_i*2]["value"])[:,head_i]
+            self_att_ax1 = np.loads(sent_log[layer_i*2+1]["value"])[:,head_i]
+            if layer_i==1:
+              self_att_ax0 = np.repeat(self_att_ax0, 2)
+              self_att_ax1 = np.repeat(self_att_ax1, 2)
+            # cross_att_sum.shape = (downsampled_src_len, 1)
+            for i in range(len(sent_log)-1):
+              if sent_log[i]["key"] == "attention":
+                if sent_log[i+1]["key"] != "forced_dec_id":
+                  raise ValueError("didn't find key 'forced_dec_id' after key 'attention', maybe this was not created using forced decoding?")
+            #cross_att_sum = np.sum([np.loads(sent_log[i]["value"]) for i in range(len(sent_log)-1) if sent_log[i]["key"]=="attention" and sent_log[i+1]["value"]==token_i],axis=0)
+            for sent_pos in range(len(sent_log)-1):
+              if sent_log[sent_pos]["key"]=="attention" and sent_log[sent_pos+1]["value"]==token_i:
+                pos_att = np.loads(sent_log[sent_pos]["value"])
+                pos_att_smoothed = np.zeros(pos_att.shape)
+                mu = np.argmax(pos_att, axis=0)
+                token_occurrences[token_i].append((sent_i, int(np.asscalar(mu)*2)))
+            if cross_att_sum is not None and cross_att_sum.shape:
+              cross_att_sum = np.repeat(cross_att_sum, 2)
+              #plot_mat(np.reshape(cross_att_sum, (1,cross_att_sum.shape[0])), plot_file + "." + vocab[token_i].replace("/","_") + ".png")
+              if axis0_concat is None:
+                axis0_concat = self_att_ax0
+                axis1_concat = self_att_ax1
+                cross_att_sum_concat = cross_att_sum
+              else:
+                axis0_concat = np.concatenate((axis0_concat, self_att_ax0))
+                axis1_concat = np.concatenate((axis1_concat, self_att_ax1))
+                cross_att_sum_concat = np.concatenate((cross_att_sum_concat, cross_att_sum))
+          if axis0_concat is not None:
+            #plot_mat(np.reshape(axis0_concat, (1,axis0_concat.shape[0])), plot_file + ".head" + str(layer_i) + str(head_i) + ".png")
+            ca0 = dist(axis0_concat, cross_att_sum_concat, args.distance)
+            axis0_stats[(layer_i,head_i,vocab[token_i])] = float(ca0)
+            ca1 = dist(axis1_concat, cross_att_sum_concat, args.distance)
+            axis1_stats[(layer_i,head_i,vocab[token_i])] = float(ca1)
+    print(axis0_stats)
+    print("-----")
+    print(axis1_stats)
+#     with open(summarized_yaml_file, "w") as f_out:
+#       f_out.write(yaml.dump({
+#       "axis0_stats":axis0_stats,
+#       "axis1_stats":axis1_stats,
+#       }))
 
 if should_plot:
   with open(summarized_yaml_file, 'r') as f:

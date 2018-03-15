@@ -8,6 +8,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from sklearn.metrics.pairwise import cosine_similarity
+from scipy.stats import entropy
 
 import numpy as np
 import dynet as dy
@@ -310,6 +311,8 @@ class MultiHeadedSelfAttention(object):
       if settings.LOG_ATTENTION:
         yaml_logger.info({"key":"selfatt_mat_ax0", "value":np.average(attn.value(),axis=0).dumps(), "desc":self.desc})
         yaml_logger.info({"key":"selfatt_mat_ax1", "value":np.average(attn.value(),axis=1).dumps(), "desc":self.desc})
+        yaml_logger.info({"key":"selfatt_mat_ax0_ent", "value":entropy(attn.value(),axis=0).dumps(), "desc":self.desc})
+        yaml_logger.info({"key":"selfatt_mat_ax1_ent", "value":entropy(attn.value(),axis=1).dumps(), "desc":self.desc})
       
       self.select_att_head = 0
       if self.select_att_head is not None:
