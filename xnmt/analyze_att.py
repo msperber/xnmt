@@ -25,6 +25,7 @@ parser.add_argument('--yaml_log', type=str, default="/Users/matthias/Desktop/165
 parser.add_argument('--summarize_yaml', type=str, default="/Users/matthias/Desktop/165.3.cossim.yaml")
 parser.add_argument('--plot', type=str, default="/Users/matthias/Desktop/165.3.png")
 parser.add_argument('--distance', type=str, default="-corrcoef") # corrcoef | corrcoef2 | cosine | intersection | urelent | urelent2 | spearman
+parser.add_argument('--settings', type=str) # ignored
 parser.add_argument('--do_summarize', dest='do_summarize', action='store_const',
                     const=True, default=False,)
 parser.add_argument('--do_queries', dest='do_queries', action='store_const',
@@ -199,18 +200,22 @@ if should_summarize_queries:
     axis0_stats, axis1_stats = {}, {}
     for layer_i in range(nlayers):
       for head_i in range(nheads):
-        token_occurrences = defaultdict([])
+        token_entropies_ax0 = defaultdict(list)
+        token_entropies_ax1 = defaultdict(list)
         for token_i in range(len(vocab)):
           axis0_concat, axis1_concat, cross_att_sum_concat = None, None, None 
           for sent_i, sent_log in enumerate(sentence_logs):
             cross_att_sum = None
             # shape layer 0: (downsampled_src_len*2,)
             # shape layer 1: (downsampled_src_len,)
-            self_att_ax0 = np.loads(sent_log[layer_i*2]["value"])[:,head_i]
-            self_att_ax1 = np.loads(sent_log[layer_i*2+1]["value"])[:,head_i]
+#             self_att_ax0 = np.loads(sent_log[layer_i*4]["value"])[:,head_i]
+#             self_att_ax1 = np.loads(sent_log[layer_i*4+1]["value"])[:,head_i]
+            self_att_ax0_ent = np.loads(sent_log[layer_i*4+2]["value"])[:,head_i]
+            self_att_ax1_ent = np.loads(sent_log[layer_i*4+3]["value"])[:,head_i]
+            assert sent_log[layer_i*4+2]["key"] == "selfatt_mat_ax0_ent"
             if layer_i==1:
-              self_att_ax0 = np.repeat(self_att_ax0, 2)
-              self_att_ax1 = np.repeat(self_att_ax1, 2)
+              self_att_ax0_ent = np.repeat(self_att_ax0_ent, 2)
+              self_att_ax1_ent = np.repeat(self_att_ax1_ent, 2)
             # cross_att_sum.shape = (downsampled_src_len, 1)
             for i in range(len(sent_log)-1):
               if sent_log[i]["key"] == "attention":
@@ -220,34 +225,23 @@ if should_summarize_queries:
             for sent_pos in range(len(sent_log)-1):
               if sent_log[sent_pos]["key"]=="attention" and sent_log[sent_pos+1]["value"]==token_i:
                 pos_att = np.loads(sent_log[sent_pos]["value"])
-                pos_att_smoothed = np.zeros(pos_att.shape)
                 mu = np.argmax(pos_att, axis=0)
-                token_occurrences[token_i].append((sent_i, int(np.asscalar(mu)*2)))
-            if cross_att_sum is not None and cross_att_sum.shape:
-              cross_att_sum = np.repeat(cross_att_sum, 2)
-              #plot_mat(np.reshape(cross_att_sum, (1,cross_att_sum.shape[0])), plot_file + "." + vocab[token_i].replace("/","_") + ".png")
-              if axis0_concat is None:
-                axis0_concat = self_att_ax0
-                axis1_concat = self_att_ax1
-                cross_att_sum_concat = cross_att_sum
-              else:
-                axis0_concat = np.concatenate((axis0_concat, self_att_ax0))
-                axis1_concat = np.concatenate((axis1_concat, self_att_ax1))
-                cross_att_sum_concat = np.concatenate((cross_att_sum_concat, cross_att_sum))
-          if axis0_concat is not None:
-            #plot_mat(np.reshape(axis0_concat, (1,axis0_concat.shape[0])), plot_file + ".head" + str(layer_i) + str(head_i) + ".png")
-            ca0 = dist(axis0_concat, cross_att_sum_concat, args.distance)
-            axis0_stats[(layer_i,head_i,vocab[token_i])] = float(ca0)
-            ca1 = dist(axis1_concat, cross_att_sum_concat, args.distance)
-            axis1_stats[(layer_i,head_i,vocab[token_i])] = float(ca1)
+                frame_pos = int(np.asscalar(mu)*2)
+                ent_ax0 = self_att_ax0_ent[frame_pos]
+                ent_ax1 = self_att_ax1_ent[frame_pos]
+                token_entropies_ax0[token_i].append(ent_ax0)
+                token_entropies_ax1[token_i].append(ent_ax1)
+          if token_entropies_ax0[token_i]:
+            axis0_stats[(layer_i,head_i,vocab[token_i])] = np.average(token_entropies_ax0[token_i])
+            axis1_stats[(layer_i,head_i,vocab[token_i])] = np.average(token_entropies_ax1[token_i])
     print(axis0_stats)
     print("-----")
     print(axis1_stats)
-#     with open(summarized_yaml_file, "w") as f_out:
-#       f_out.write(yaml.dump({
-#       "axis0_stats":axis0_stats,
-#       "axis1_stats":axis1_stats,
-#       }))
+    with open(summarized_yaml_file, "w") as f_out:
+      f_out.write(yaml.dump({
+      "axis0_stats":axis0_stats,
+      "axis1_stats":axis1_stats,
+      }))
 
 if should_plot:
   with open(summarized_yaml_file, 'r') as f:
