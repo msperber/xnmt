@@ -1,17 +1,20 @@
 import logging
+
 logger = logging.getLogger('xnmt')
 import sys
 import io
 import ast
 from collections.abc import Sequence
 
-from xnmt.evaluator import BLEUEvaluator, GLEUEvaluator, WEREvaluator, CEREvaluator, AccuracyEvaluator, RecallEvaluator, ExternalEvaluator, MeanAvgPrecisionEvaluator
+from xnmt.evaluator import BLEUEvaluator, GLEUEvaluator, WEREvaluator, CEREvaluator, AccuracyEvaluator, RecallEvaluator, \
+  ExternalEvaluator, MeanAvgPrecisionEvaluator
 from xnmt.inference import NO_DECODING_ATTEMPTED
 
 """
 Command line usage:
   python xnmt_evaluate.py <ref> <hyp> <metric>
 """
+
 
 def read_data(loc_, post_process=None):
   """Reads the lines in the file specified in loc_ and return the list after inserting the tokens
@@ -25,11 +28,13 @@ def read_data(loc_, post_process=None):
       data.append(t)
   return data
 
+
 def eval_or_empty_list(x):
   try:
     return ast.literal_eval(x)
   except:
     return []
+
 
 def xnmt_evaluate(ref_file=None, hyp_file=None, evaluator="bleu", desc=None):
   """"Returns the eval score (e.g. BLEU) of the hyp sents using reference trg sents
@@ -39,7 +44,7 @@ def xnmt_evaluate(ref_file=None, hyp_file=None, evaluator="bleu", desc=None):
   """
   args = dict(ref_file=ref_file, hyp_file=hyp_file, evaluator=evaluator)
   cols = args["evaluator"].split("|")
-  eval_type  = cols[0]
+  eval_type = cols[0]
   eval_param = {} if len(cols) == 1 else {key: value for key, value in [param.split("=") for param in cols[1].split()]}
 
   hyp_postprocess = lambda line: line.split()
@@ -84,16 +89,18 @@ def xnmt_evaluate(ref_file=None, hyp_file=None, evaluator="bleu", desc=None):
   ref_corpus = read_data(args["ref_file"], post_process=ref_postprocess)
   hyp_corpus = read_data(args["hyp_file"], post_process=hyp_postprocess)
   len_before = len(hyp_corpus)
-  ref_corpus, hyp_corpus = zip(*filter(lambda x: (isinstance(x[1], Sequence) and NO_DECODING_ATTEMPTED not in x[1]) or x[1]!=NO_DECODING_ATTEMPTED, zip(ref_corpus, hyp_corpus)))
+  ref_corpus, hyp_corpus = zip(
+    *[(ref_sent, hyp_sent) for (ref_sent, hyp_sent) in zip(ref_corpus, hyp_corpus) if (isinstance(
+      hyp_sent, str) and hyp_sent != NO_DECODING_ATTEMPTED) or NO_DECODING_ATTEMPTED not in hyp_sent])
   if len(ref_corpus) < len_before:
     logger.info(f"> ignoring {len_before - len(ref_corpus)} out of {len_before} test sentences.")
 
   eval_score = evaluator.evaluate(ref_corpus, hyp_corpus)
   return eval_score
 
-if __name__ == "__main__":
 
-  args = sys.argv[1:]
+if __name__ == "__main__":
+  args = [a for a in sys.argv if not a.startswith("--settings")]
+  args = args[1:]
   score = xnmt_evaluate(*args)
   print(f"{args[2]} Score = {score}")
-
