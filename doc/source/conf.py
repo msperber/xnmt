@@ -22,13 +22,10 @@ import sys
 import glob
 
 sys.path.insert(0, os.path.abspath('.'))
-sys.path.insert(0, os.path.abspath('..'))
 sys.path.insert(0, os.path.abspath('../build/xnmt'))
-sys.path.insert(0, os.path.abspath('../build/xnmt/serialize'))
-sys.path.insert(0, os.path.abspath('../build/xnmt/speech_features'))
 import doc_util
 
-files = glob.glob('../../xnmt/*.py')
+files = glob.glob('../../xnmt/*.py') + glob.glob('../../xnmt/*/*.py')
 if not os.path.exists('../build/xnmt'):
   os.makedirs('../build/xnmt')
 for fname in files:
