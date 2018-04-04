@@ -4,6 +4,8 @@ from Cython.Build import cythonize
 import sys
 
 sys.path.append("./xnmt")
+sys.path.append("./xnmt/serialize")
+sys.path.append("./xnmt/speech_features")
 
 with open("requirements.txt", encoding="utf-8") as req_fp:
   install_requires = req_fp.readlines()
@@ -30,7 +32,7 @@ setup(
   license='Apache License',
   install_requires=install_requires,
   packages=[
-      'xnmt',
+      'xnmt','xnmt.serialize','xnmt.speech_features'
   ],
   ext_modules=ext_modules,
 )
