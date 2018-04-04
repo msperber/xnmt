@@ -1,10 +1,22 @@
 import logging
 logger = logging.getLogger('xnmt')
-
+import time
 import sys
 import os.path
 import subprocess
+from collections import defaultdict
+import string
+
+import numpy as np
+import warnings
+with warnings.catch_warnings():
+  warnings.simplefilter("ignore", lineno=36)
+  import h5py
+import yaml
+
 from xnmt.serialize.serializable import Serializable
+from xnmt.serialize.serializer import serializable_init
+from xnmt.speech_features import logfbank, calculate_delta, get_mean_std, normalize
 
 ##### Preprocessors
 
@@ -27,6 +39,8 @@ class Normalizer(object):
       for my_spec in spec:
         if my_spec["type"] == "lower":
           preproc_list.append(NormalizerLower(my_spec))
+        elif my_spec["type"] == "remove_punct":
+          preproc_list.append(NormalizerRemovePunct(my_spec))
         else:
           raise RuntimeError("Unknown normalizer type {}".format(my_spec["type"]))
     return preproc_list
@@ -37,6 +51,20 @@ class NormalizerLower(Normalizer):
   def normalize(self, sent):
     return sent.lower()
 
+class NormalizerRemovePunct(Normalizer):
+  """Remove punctuation from the text."""
+  def __init__(self, spec=None):
+    self.exclude = set(string.punctuation) - set(spec.get("allowed_chars", ""))
+    self.remove_inside_word = spec.get("remove_inside_word", False)
+  def normalize(self, sent):
+    if self.remove_inside_word:
+      return ''.join(ch for ch in sent if ch not in self.exclude)
+    else:
+      words = []
+      for w in sent.split():
+        words.append(w.strip(''.join(ch for ch in self.exclude)))
+      return " ".join(words)
+
 ###### Tokenizers
 
 class Tokenizer(Normalizer, Serializable):
@@ -45,6 +73,7 @@ class Tokenizer(Normalizer, Serializable):
 
   TODO: only StreamTokenizers are supported by the preproc runner right now.
   """
+
   def tokenize(self, sent):
     raise RuntimeError("Subclasses of Tokenizer must implement tokenize() or tokenize_stream()")
 
@@ -70,6 +99,7 @@ class BPETokenizer(Tokenizer):
   """
   yaml_tag = '!BPETokenizer'
 
+  @serializable_init
   def __init__(self, vocab_size, train_files):
     """Determine the BPE based on the vocab size and corpora"""
     raise NotImplementedError("BPETokenizer is not implemented")
@@ -83,6 +113,10 @@ class CharacterTokenizer(Tokenizer):
   Tokenize into characters, with __ indicating blank spaces
   """
   yaml_tag = '!CharacterTokenizer'
+
+  @serializable_init
+  def __init__(self):
+    pass
 
   def tokenize(self, sent):
     """Tokenizes a single sentence into characters."""
@@ -99,6 +133,7 @@ class ExternalTokenizer(Tokenizer):
   """
   yaml_tag = '!ExternalTokenizer'
 
+  @serializable_init
   def __init__(self, path, tokenizer_args={}, arg_separator=' '):
     """Initialize the wrapper around the external tokenizer. """
     tokenizer_options = []
@@ -139,6 +174,7 @@ class SentencepieceTokenizer(ExternalTokenizer):
   """
   yaml_tag = '!SentencepieceTokenizer'
 
+  @serializable_init
   def __init__(self, path, train_files, vocab_size, overwrite=False, model_prefix='sentpiece'
       , output_format='piece', model_type='bpe'
       , encode_extra_options=None, decode_extra_options=None):
@@ -317,3 +353,58 @@ class VocabFiltererRank(VocabFilterer):
     if len(vocab) <= self.max_rank:
       return vocab
     return {k: v for k, v in sorted(vocab.items(), key=lambda x: -x[1])[:self.max_rank]}
+
+##### Preprocessors
+
+class Extractor(object):
+  """A type of feature extraction to perform."""
+
+  def extract_to(self, in_file, out_file):
+    raise RuntimeError("Subclasses of Extractor must implement the extract_to() function")
+
+class MelFiltExtractor(Extractor, Serializable):
+  yaml_tag = "!MelFiltExtractor"
+  @serializable_init
+  def __init__(self, nfilt=40, delta=False):
+    self.delta = delta
+    self.nfilt = nfilt
+  def extract_to(self, in_file, out_file):
+    """
+    in_file: yaml file that contains a list of dictionaries.
+             Each dictionary contains:
+             - wav (str): path to wav file
+             - offset (float): start time stamp (optional)
+             - duration (float): stop time stamp (optional)
+             - speaker: speaker id for normalization (optional; if not given, the filename is used as speaker id)
+    out_file: a filename ending in ".h5"
+    """
+    import librosa
+    if not out_file.endswith(".h5"): raise ValueError(f"out_file must end in '.h5', was '{out_file}'")
+    start_time = time.time()
+    with open(in_file) as in_stream, \
+         h5py.File(out_file, "w") as hf:
+      db = yaml.load(in_stream)
+      db_by_speaker = defaultdict(list)
+      for db_index, db_item in enumerate(db):
+        speaker_id = db_item.get("speaker", db_item["wav"].split("/")[-1])
+        db_item["index"] = db_index
+        db_by_speaker[speaker_id].append(db_item)
+      for speaker_id in db_by_speaker.keys():
+        data = []
+        for db_item in db_by_speaker[speaker_id]:
+          y, sr = librosa.load(db_item["wav"], sr=16000, 
+                               offset=db_item.get("offset", 0.0), 
+                               duration=db_item.get("duration", None))
+          if len(y)==0: raise ValueError(f"encountered an empty or out of bounds segment: {db_item}")
+          logmel = logfbank(y, samplerate=sr, nfilt=self.nfilt)
+          if self.delta:
+            delta = calculate_delta(logmel)
+            features = np.concatenate([logmel, delta], axis=1)
+          else:
+            features = logmel
+          data.append(features)
+        mean, std = get_mean_std(np.concatenate(data))
+        for features, db_item in zip(data, db_by_speaker[speaker_id]):
+          features = normalize(features, mean, std)
+          hf.create_dataset(str(db_item["index"]), data=features)
+    logger.debug(f"feature extraction took {time.time()-start_time:.3f} seconds")
