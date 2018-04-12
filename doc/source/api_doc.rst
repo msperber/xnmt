@@ -4,5 +4,5 @@ API Doc
 Experiment
 ----------
 
-.. automodule:: xnmt.experiment
+.. automodule:: experiment
    :members:
