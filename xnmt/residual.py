@@ -2,8 +2,7 @@ import dynet as dy
 
 from xnmt.lstm import UniLSTMSeqTransducer
 from xnmt.expression_sequence import ExpressionSequence, ReversedExpressionSequence
-from xnmt.serialize.serializable import Serializable, Ref, Path
-from xnmt.serialize.serializer import serializable_init
+from xnmt.persistence import serializable_init, Serializable, Ref
 from xnmt.events import register_xnmt_handler, handle_xnmt_event
 from xnmt.transducer import SeqTransducer, FinalTransducerState
 
@@ -51,8 +50,13 @@ class ResidualLSTMSeqTransducer(SeqTransducer, Serializable):
   @register_xnmt_handler
   @serializable_init
   def __init__(self, input_dim=512, layers=1, hidden_dim=Ref("exp_global.default_layer_dim"),
-               residual_to_output=False, dropout=0.0, bidirectional=True, builder=None):
+               residual_to_output=False, dropout=0.0, bidirectional=True, builder=None,
+               yaml_path=None, decoder_input_dim=Ref("exp_global.default_layer_dim", default=None), decoder_input_feeding=True):
     self._final_states = None
+    if yaml_path is not None and "decoder" in yaml_path:
+      bidirectional = False
+      if decoder_input_feeding:
+        input_dim += decoder_input_dim
     if bidirectional:
       self.builder = self.add_serializable_component("builder", builder,
                                                      lambda: ResidualBiRNNBuilder(num_layers=layers,
@@ -77,6 +81,9 @@ class ResidualLSTMSeqTransducer(SeqTransducer, Serializable):
       output = ExpressionSequence(expr_list=output)
     self._final_states = self.builder.get_final_states()
     return output
+
+  def initial_state(self):
+    return self.builder.initial_state()
 
   def get_final_states(self):
     assert self._final_states is not None, "ResidualLSTMSeqTransducer.__call__() must be invoked before ResidualLSTMSeqTransducer.get_final_states()"

@@ -23,8 +23,6 @@ import glob
 
 sys.path.insert(0, os.path.abspath('.'))
 sys.path.insert(0, os.path.abspath('../build/xnmt'))
-sys.path.insert(0, os.path.abspath('../build/xnmt/serialize'))
-sys.path.insert(0, os.path.abspath('../build/xnmt/speech_features'))
 import doc_util
 
 files = glob.glob('../../xnmt/*.py')
@@ -32,18 +30,6 @@ if not os.path.exists('../build/xnmt'):
   os.makedirs('../build/xnmt')
 for fname in files:
   doc_util.create_doc_copy(in_file=fname, out_file='../build/xnmt/'+os.path.basename(fname))
-
-files = glob.glob('../../xnmt/serialize/*.py')
-if not os.path.exists('../build/xnmt/serialize'):
-  os.makedirs('../build/xnmt/serialize')
-for fname in files:
-  doc_util.create_doc_copy(in_file=fname, out_file='../build/xnmt/serialize/'+os.path.basename(fname))
-
-files = glob.glob('../../xnmt/speech_features/*.py')
-if not os.path.exists('../build/xnmt/speech_features'):
-  os.makedirs('../build/xnmt/speech_features')
-for fname in files:
-  doc_util.create_doc_copy(in_file=fname, out_file='../build/xnmt/speech_features/'+os.path.basename(fname))
 
 # -- General configuration ------------------------------------------------
 
