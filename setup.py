@@ -31,7 +31,8 @@ setup(
   license='Apache License',
   install_requires=install_requires,
   packages=[
-      'xnmt'
+      'xnmt',
+      'xnmt.speech_features',
   ],
   ext_modules=ext_modules,
 )
