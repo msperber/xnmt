@@ -11,9 +11,14 @@ It is coded in Python based on `DyNet <http://github.com/clab/dynet>`_.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
 
+   getting_started
+   experiment_config_files
+   translator_structure
+   preprocessing
    api_doc
+   programming_style
+   writing_xnmt_classes
 
 
 Indices and tables
