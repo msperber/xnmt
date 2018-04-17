@@ -1,3 +1,4 @@
+from io import open
 from setuptools import setup
 from distutils.core import Extension
 from Cython.Build import cythonize
