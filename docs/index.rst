@@ -13,6 +13,7 @@ It is coded in Python based on `DyNet <http://github.com/clab/dynet>`_.
    :maxdepth: 2
    :caption: Contents:
 
+   api_doc
 
 
 Indices and tables
